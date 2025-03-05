@@ -3,7 +3,7 @@ from ..backend import backend_manager as bm
 from ..operator import LinearOperator
 from .conjugate_gradient import cg
 from scipy.sparse.linalg import spsolve_triangular,spsolve
-from .amg_coarsen import ruge_stuben_coarsen,ruge_stuben_chen_coarsen,standard_interpolation,aggregation_coarsen
+from .amg_coarsen import *
 from ..sparse.coo_tensor import COOTensor
 from ..sparse.csr_tensor import CSRTensor
 from .. import logger
@@ -107,9 +107,9 @@ class GAMGSolver():
             for l in range(NL):
                 self.L.append(self.A[-1].tril()) # 前磨光的光滑子
                 self.U.append(self.A[-1].triu()) # 后磨光的光滑子
-                isC, G = aggregation_coarsen(self.A[-1], self.theta)
-                p, r = standard_interpolation(self.A[-1], isC)
-                #p, r = ruge_stuben_coarsen(self.A[-1], self.theta)
+                # isC, G = aggregation_coarsen(self.A[-1], self.theta)
+                # p, r = standard_interpolation(self.A[-1], isC)
+                p, r = ruge_stuben_coarsen(self.A[-1], self.theta)
                 
                 self.P.append(p)
                 self.R.append(r)
