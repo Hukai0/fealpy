@@ -87,6 +87,3 @@ def gmres(A:[COOTensor, CSRTensor], b, solver:str="scipy",
         return bm.tensor(_cupy_solve(A, b, tol=tol, x0=x0, maxiter=maxiter, atol=atol))
     else:
         raise ValueError(f"Unknown solver: {solver}")
-
-
-
