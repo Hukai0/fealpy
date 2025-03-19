@@ -90,7 +90,7 @@ def _cg_impl(A: SupportsMatmul, b: TensorLike, x0: TensorLike, M: SupportsMatmul
     # iterate
     while True:
         Ap = A @ p      # (dof, batch)
-        alpha = rTr / sum_func(p*Ap, axis=0)  # r @ r / (p @ Ap) # (batch,)
+        alpha = rTr / sum_func(p@Ap, axis=0)  # r @ r / (p @ Ap) # (batch,)
         x = x + alpha[None, ...] * p  # (dof, batch)
         r_new = r - alpha[None, ...] * Ap
         z_new = M @ r_new if M is not None  else r_new 

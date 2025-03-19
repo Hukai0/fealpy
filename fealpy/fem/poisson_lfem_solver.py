@@ -8,7 +8,34 @@ from ..fem import DirichletBC
 
 from fealpy.sparse import csr_matrix
 
+    
+def apply_precond(A,v):
+    from ..solver import IncompleteCholesky
+    y = v.copy()
+    ic = IncompleteCholesky(A, threshold=0.01)
+    # 前向代回：解 L y = v
+    ic.setup()
+    ic.MSolveLowerUsePtr(y)
+    # 后向代回：解 Lᵀ x = y
+    ic.MSolveUpperUsePtr(y)
+    print(y.shape)
+    return y
 
+def make_preconditioner(A):
+    from ..solver import IncompleteCholesky
+    from ..operator import LinearOperator
+
+    ic = IncompleteCholesky(A, threshold=0.01)
+    ic.setup()  # 计算 L
+
+    def matvec(v):  # 这里的 v 是由 LinearOperator 传入的
+        v_copy = v.copy()  # 先复制，避免修改原始 v
+        ic.MSolveLowerUsePtr(v_copy)  # 先解 L y = v_copy
+        ic.MSolveUpperUsePtr(v_copy)  # 再解 Lᵀ x = y
+        return v_copy
+
+    n = A.shape[0]
+    return LinearOperator((n, n), matvec=matvec)  # 这里注册 matvec(v)
 
 class PoissonLFEMSolver:
     """
@@ -72,25 +99,46 @@ class PoissonLFEMSolver:
                          f" and relative residual {stop_res:.4e},absolute error {err:.4e}")
         return self.uh
 
-    def gs_solve(self):
+    def pcg_solve(self):
         """
-        Solve using the Gauss Seidel solver.
+        Solve using the Conjugate Gradient solver.
 
         Returns:
-            Tensor: The solution of the Gauss Seidel solver.
+            Tensor: The solution of the Conjugate Gradient solver.
         """
-        from ..solver import gs
-
-        self.uh[:], info = gs(self.A, self.b, maxit=5000, rtol=1e-8, returninfo=True)
+        from ..solver import cg 
+        M = make_preconditioner(self.A)
+        self.uh[:], info = cg(self.A, self.b, M=M, maxit=5000, atol=1e-14, rtol=1e-14,returninfo=True)
+        
         if self.timer is not None:
-            self.timer.send(f"GS 方法求解 Poisson 方程线性系统")
+            self.timer.send(f"PCG 方法求解 Poisson 方程线性系统")
         err = self.L2_error()
         res = info['residual']
         res_0 = bm.linalg.norm(self.b)
         stop_res = res/res_0
-        self.logger.info(f"GS solver with {info['niter']} iterations"
+        self.logger.info(f"PCG solver with {info['niter']} iterations"
                          f" and relative residual {stop_res:.4e},absolute error {err:.4e}")
         return self.uh
+    
+    # def gs_solve(self):
+    #     """
+    #     Solve using the Gauss Seidel solver.
+
+    #     Returns:
+    #         Tensor: The solution of the Gauss Seidel solver.
+    #     """
+    #     from ..solver import gs
+
+    #     self.uh[:], info = gs(self.A, self.b, maxit=5000, rtol=1e-8, returninfo=True)
+    #     if self.timer is not None:
+    #         self.timer.send(f"GS 方法求解 Poisson 方程线性系统")
+    #     err = self.L2_error()
+    #     res = info['residual']
+    #     res_0 = bm.linalg.norm(self.b)
+    #     stop_res = res/res_0
+    #     self.logger.info(f"GS solver with {info['niter']} iterations"
+    #                      f" and relative residual {stop_res:.4e},absolute error {err:.4e}")
+    #     return self.uh
     
     def jacobi_solve(self):
         """
@@ -172,9 +220,10 @@ class PoissonLFEMSolver:
         res = info['residual']
         res_0 = bm.linalg.norm(self.b)
         stop_res = res/res_0
-        self.logger.info(f"minres solver with {info['niter']} iterations"
+        self.logger.info(f"gmres solver with {info['niter']} iterations"
                          f" and relative residual {stop_res:.4e},absolute error {err:.4e}")
         return self.uh[:]
+    
 
 
     def show_mesh_and_solution(self):

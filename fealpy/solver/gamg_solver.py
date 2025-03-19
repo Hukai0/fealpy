@@ -109,8 +109,10 @@ class GAMGSolver():
                 self.L.append(self.A[-1].tril()) # 前磨光的光滑子
                 self.U.append(self.A[-1].triu()) # 后磨光的光滑子
 
-                isC, G = ruge_stuben_coarsen(self.A[-1], self.theta)
-                p, r = ruge_stuben_interpolation(isC, G)
+                isC, G = classical_strength_of_connection(self.A[-1], self.theta)
+                p, r = rs_direct_interpolation(self.A[-1],  G, isC)
+                #p, r = standard_interpolation(self.A[-1],  isC)
+                
                 
                 self.P.append(p)
                 self.R.append(r)
