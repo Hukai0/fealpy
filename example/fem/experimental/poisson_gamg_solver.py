@@ -16,7 +16,7 @@ next(tmr)
 
 # Different configurations: coarsest mesh size and number of refinements.
 configurations = [
-    (2, 6),  
+    (2, 8),  
     #(2, 4),   
     #(32, 6)   
 ]
@@ -32,12 +32,13 @@ for n, m in configurations:
     p = 1  
     s0 = PoissonLFEMSolver(pde, mesh, p, timer=tmr, logger=logger)
     tmr.send(f"Running gamg_solve with (n, m) = ({n}, {m})")
-    s0.gamg_solve(IM)
+    s0.gamg_solve()
     tmr.send(f"Completed gamg_solve for (n, m) = ({n}, {m})")
 
 s0.cg_solve()
 #s0.gs_solve()
 #s0.jacobi_solve()
-s0.minres_solve()
-s0.gmres_solve()
+#s0.minres_solve()
+#s0.pcg_solve()
+#s0.gmres_solve()
 tmr.send(None)

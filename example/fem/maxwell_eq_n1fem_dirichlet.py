@@ -32,7 +32,7 @@ from fealpy.decorator import cartesian, barycentric
 from fealpy.tools.show import showmultirate, show_error_table
 
 # solver
-from fealpy.solver import spsolve
+from fealpy.solver import spsolve,cg
 
 from fealpy.pde.maxwell_2d import SinData as PDE2d
 from fealpy.pde.maxwell_3d import BubbleData3d as PDE3d
@@ -119,9 +119,9 @@ for j, p in enumerate(ps):
         A, F = bc.apply(A, F)
         tmr.send(f'第{i}次边界处理时间')
 
-        #Eh[:] = cg(A, F, maxiter=5000, atol=1e-14, rtol=1e-14)
+        Eh[:] = cg(A, F, maxiter=5000, atol=1e-14, rtol=1e-14)
         #Eh[:] = bm.tensor(Solve(A, F))
-        Eh[:] = spsolve(A, F,"scipy")
+        #Eh[:] = spsolve(A, F,"scipy")
         tmr.send(f'第{i}次求解器时间')
 
         # 计算误差
