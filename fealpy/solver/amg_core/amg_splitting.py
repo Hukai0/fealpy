@@ -110,6 +110,72 @@ def rs_cf_splitting(Sp, Sj, Tp, Tj, n_nodes):
     return splitting
 
 
+# def rs_cf_splitting(Sp, Sj, Tp, Tj, n_nodes):
+#     lambda_vals = Tp[1:] - Tp[:-1]
+#     interval_ptr = bm.zeros(n_nodes + 1, dtype=int)
+#     interval_count = bm.zeros(n_nodes, dtype=int)
+
+#     # 计算 lambda 计数
+#     interval_count[:max(lambda_vals) + 1] = bm.bincount(lambda_vals)
+#     interval_ptr[1:] = bm.cumsum(interval_count)
+
+#     sorted_indices = bm.argsort(lambda_vals)
+#     node_to_index = bm.arange(len(lambda_vals))
+#     node_to_index[sorted_indices] = bm.arange(len(lambda_vals))
+#     index_to_node = bm.argsort(node_to_index)
+
+#     # 初始化 splitting 数组
+#     splitting = bm.full(n_nodes, U_NODE, dtype=int)
+
+#     # 处理无邻接点的节点
+#         # 将无邻接点的节点设为 F
+#     for i in range(n_nodes):
+#         if lambda_vals[i] == 0 or (lambda_vals[i] == 1 and Tj[Tp[i]] == i):
+#             splitting[i] = F_NODE
+
+
+#     # 逐步划分 C/F 点
+#     for top_index in range(n_nodes - 1, -1, -1):
+#         i = index_to_node[top_index]
+#         lambda_i = lambda_vals[i]
+
+#         # 从区间移除 i
+#         interval_count[lambda_i] -= 1
+
+#         if lambda_i <= 0:
+#             break  # 退出循环
+
+#         if splitting[i] == U_NODE:
+#             splitting[i] = C_NODE
+
+#             # 标记 S^T_i 中的未处理节点为 PRE_F_NODE
+#             neighbors = Tj[Tp[i]:Tp[i+1]]
+#             ubmrocessed_neighbors = neighbors[splitting[neighbors] == U_NODE]
+#             splitting[ubmrocessed_neighbors] = PRE_F_NODE
+
+#             # 处理所有 PRE_F_NODE
+#             splitting[ubmrocessed_neighbors] = F_NODE
+
+#             # 更新 S^T_i 中的邻居 k 的 lambda 值（增加）
+#             for j in ubmrocessed_neighbors:
+#                 k_neighbors = Sj[Sp[j]:Sp[j+1]]
+#                 ubmrocessed_k = k_neighbors[splitting[k_neighbors] == U_NODE]
+
+#                 # 通过 bm.maximum.at 直接更新 lambda 值
+#                 bm.maximum.at(lambda_vals, ubmrocessed_k, lambda_vals[ubmrocessed_k] + 1)
+
+#             # 处理 S_i，降低邻居 j 的 lambda
+#             neighbors_Si = Sj[Sp[i]:Sp[i+1]]
+#             ubmrocessed_Si = neighbors_Si[splitting[neighbors_Si] == U_NODE]
+
+#             # 直接批量更新 lambda
+#             bm.maximum.at(lambda_vals, ubmrocessed_Si, bm.maximum(lambda_vals[ubmrocessed_Si] - 1, 0))
+
+#     # 将所有未标记的节点设为 F_NODE
+#     splitting[splitting == U_NODE] = F_NODE
+
+#     return splitting
+
 def ruge_stuben_coarsen(A, theta=0.025):
     
     """Ruge-Stuben coarsening method for multigrid preconditioning.
@@ -121,7 +187,7 @@ def ruge_stuben_coarsen(A, theta=0.025):
     the fine grid to the coarse grid.
 
     Parameters:
-        A (CSRMatrix): The input matrix representing the linear system. It should be a sparse matrix.
+        A (CSRMatrix): The ibmut matrix representing the linear system. It should be a sparse matrix.
         theta (float, optional): A threshold parameter used to delete weak connections in the matrix. Default is 0.025.
 
     Returns:
@@ -135,7 +201,7 @@ def ruge_stuben_coarsen(A, theta=0.025):
     """
     
     N = A.shape[0]
-    maxaij = A.col_min()+0.05
+    maxaij = A.col_min()
     inverse_maxaij = 1 / bm.abs(maxaij)
     D = spdiags(inverse_maxaij,diags=0,M = N,N =N)
     Am = D @ A
@@ -145,7 +211,7 @@ def ruge_stuben_coarsen(A, theta=0.025):
     idx = (-sm > theta)
     As = csr_matrix((bm.ones_like(sm[idx]), (im[idx], jm[idx])), shape=(N, N))
     Am = csr_matrix((sm[idx], (im[idx], jm[idx])), shape=(N, N))
-    Ass = As + Am
+    Ass = (As + As.T)/2
 
     isF = bm.zeros(N, dtype=bool)
     degIn = bm.array(As.sum(axis=1)).flatten()

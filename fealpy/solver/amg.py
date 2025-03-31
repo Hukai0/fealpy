@@ -1,6 +1,6 @@
-from .amg_core.amg_connection import classical_strength_of_connection
-from .amg_core.amg_splitting import rs_cf_splitting
-from .amg_core.amg_interpolation import rs_direct_interpolation
+from .amg_core.amg_connection import classical_strength_of_connection, symmetric_strength_of_connection
+from .amg_core.amg_splitting import rs_cf_splitting,ruge_stuben_coarsen,ruge_stuben_chen_coarsen
+from .amg_core.amg_interpolation import rs_direct_interpolation,ruge_stuben_interpolation,two_points_interpolation,rs_standard_interpolation
 from fealpy.sparse import csr_matrix
 from ..backend import backend_manager as bm
 
@@ -28,11 +28,38 @@ def Ruge_Stuben_AMG(A,theta = 0.25):
     n_row = A.shape[0]
     Ap, Aj, Ax = A.indptr, A.indices, A.data
     Sp, Sj, Sx = classical_strength_of_connection(Ap, Aj, Ax,n_row,theta)
+    S = csr_matrix((Sx, Sj, Sp), shape=(n_row, n_row))
     Tp, Tj, _ = csr_transpose(Sp, Sj, Sx, (n_row, n_row))
     splitting = rs_cf_splitting(Sp, Sj, Tp, Tj, n_row)
-    p,r = rs_direct_interpolation(Ap, Aj, Ax,Sp, Sj, Sx, splitting)
+    #p,r = rs_direct_interpolation(Ap, Aj, Ax,Sp, Sj, Sx, splitting)
+    p,r = rs_standard_interpolation(A, S, splitting)
+    
     # Px, Pj, Pp, n_coarse = rs_direct_interpolation(Ap, Aj, Ax,Sp, Sj, Sx, splitting)
     # rp,rj,rx = csr_transpose(Pp, Pj, Px, (n_row, n_coarse))
     
-    
     return p,r
+
+def Ruge_Stuben_coarse(A,theta = 0.25):
+    isC,Am = ruge_stuben_chen_coarsen(A,theta)
+    p,r = two_points_interpolation(A,isC)
+    return p,r
+
+
+from .amg_core.aggretation import standard_aggregation, fit_candidates, jacobi_prolongation_smoother
+def smoothed_aggregation_amg(A, B, omega=4.0/3.0, degree=1):
+    n_row = A.shape[0]
+    Ap, Aj,Ax = A.indptr, A.indices, A.data
+    Sp, Sj, Sx = symmetric_strength_of_connection(Ap, Aj, Ax,n_row,theta = 0.25)   
+    
+    # 1. 生成聚类矩阵 AggOp
+    AggOp, Cpts = standard_aggregation(Sp, Sj, n_row)
+    
+    # 2. 计算初始候选向量延拓矩阵 Q 和粗网格候选向量 B_coarse
+    Q, B_coarse = fit_candidates(AggOp, B)
+    
+    # 3. 使用雅可比平滑处理延拓矩阵
+    P = jacobi_prolongation_smoother(A, Q, omega=omega, degree=degree)
+
+    R = P.T
+    
+    return P, R, B_coarse

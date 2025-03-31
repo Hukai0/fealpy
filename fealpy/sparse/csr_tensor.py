@@ -473,7 +473,7 @@ class CSRTensor(SparseTensor):
         Returns:
             Tensor: A tensor containing the minimum values for each column.
         """
-        M = bm.zeros(self._spshape[1], dtype=self._values.dtype)
+        M = bm.full(self._spshape[1], float('inf'), dtype=self._values.dtype)
         bm.minimum.at(M, self._col, self._values)
         
         return M

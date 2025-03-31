@@ -1,4 +1,4 @@
-from .. import logger
+from fealpy import logger
 
 import numpy as np
 import scipy.sparse as sp
@@ -197,7 +197,7 @@ class GAMGSolver():
 
         if self.isolver == 'CG':
             counter = IterationCounter()
-            x, info = cg(self.A[0], b, M=P, tol=self.rtol, atol=self.atol, callback=counter)
+            x, info = cg(self.A[0], b, M=P, rtol=self.rtol, atol=self.atol, callback=counter)
             print(info)
 
         return x

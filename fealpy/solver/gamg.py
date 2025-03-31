@@ -3,7 +3,7 @@ from ..backend import backend_manager as bm
 from ..operator import LinearOperator
 from .cg import cg
 from scipy.sparse.linalg import spsolve_triangular,spsolve
-from .amg import Ruge_Stuben_AMG
+from .amg import Ruge_Stuben_AMG,Ruge_Stuben_coarse,smoothed_aggregation_amg
 from ..sparse.coo_tensor import COOTensor
 from ..sparse.csr_tensor import CSRTensor
 from .. import logger
@@ -77,6 +77,7 @@ class GAMGSolver():
         self.U = []   # List to store the upper triangular matrices
         self.P = []   # List to store the prolongation operators
         self.R = []   # List to store the restriction matrices
+        self.B = [bm.ones((A.shape[0], 1), dtype=A.dtype)]   # List to store the right-hand-sides of the systems
 
         # 2. Coarsening from higher-order spaces to lower-order spaces.
         if space is not None:
@@ -101,17 +102,20 @@ class GAMGSolver():
         elif mesh is not None: # geometric coarsening from finnest to coarsest
             pass
         else: # algebraic coarsening 
-            NN = bm.ceil(bm.log2(self.A[-1].shape[0])/2-8)
+            NN = bm.ceil(bm.log2(self.A[-1].shape[0])/2-4)
             NL = max(min(int(NN), 8), 2) # 估计粗化的层数 
             start_time = time.time()
             for l in range(NL):
                 self.L.append(self.A[-1].tril()) # 前磨光的光滑子
                 self.U.append(self.A[-1].triu()) # 后磨光的光滑子
 
+                # p,r,B = smoothed_aggregation_amg(self.A[-1], B=self.B[-1], omega=4.0/3.0, degree=1)
                 p, r = Ruge_Stuben_AMG(self.A[-1], theta=self.theta)
                 
                 self.P.append(p)
                 self.R.append(r)
+                # self.B.append(B)
+           
 
                 self.A.append(r @ self.A[-1] @ p)
                 if self.A[-1].shape[0] < self.csize:
@@ -119,11 +123,10 @@ class GAMGSolver():
             end_time = time.time()
             logger.info(f"Coarsening time: {end_time-start_time}")
             # # 计算最粗矩阵最大和最小特征值
-            # A = self.A[-1].toarray()
-            # emax, _ = eigs(A, 1, which='LM')
-            # emin, _ = eigs(A, 1, which='SM')
+            # emax, _ = eigs(self.A[-1].to_dense(), 1, which='LM')
+            # emin, _ = eigs(self.A[-1].to_dense(), 1, which='SM')
 
-            # # 计算条件数的估计值
+            # #计算条件数的估计值
             # condest = abs(emax[0] / emin[0])
 
             # if condest > 1e12:
@@ -209,7 +212,7 @@ class GAMGSolver():
 
         if self.isolver == 'CG':
             x0 = bm.zeros(N, **self.kargs)
-            x, info = cg(self.A[0], b, x0=x0, M=P, atol=self.atol, rtol=self.rtol, maxit=self.maxit, returninfo=True)
+            x, info = cg(self.A[0], b, x0=x0, M = P, atol=self.atol, rtol=self.rtol, maxit=self.maxit, returninfo=True)
             return x,info
         elif self.isolver == 'MG':
             x0 = bm.zeros(N, **self.kargs)

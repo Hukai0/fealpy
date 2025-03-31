@@ -127,12 +127,12 @@ class PoissonLFEMSolver:
             Tensor: The solution of the multigrid solver.
         """
         from ..solver import GAMGSolver
-        solver = GAMGSolver(isolver='CG') 
+        solver = GAMGSolver(isolver='CG',ptype='V') 
         if self.p < 2:
             self.space = None
         cdegree = list(range(1,self.p))
         #solver.setup(self.A, P=P, space=self.space, cdegree=cdegree)
-        solver.setup(self.A)
+        solver.setup(self.A,space=self.space, cdegree=cdegree)
         self.uh[:], info = solver.solve(self.b)
         if self.timer is not None:
             self.timer.send(f"MG 方法求解 Poisson 方程离散系统")
