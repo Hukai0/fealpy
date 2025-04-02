@@ -175,6 +175,15 @@ class PoissonLFEMSolver:
         self.logger.info(f"minres solver with {info['niter']} iterations"
                          f" and relative residual {stop_res:.4e},absolute error {err:.4e}")
         return self.uh[:]
+    
+    def pyamg_solve(self):
+        import pyamg
+        ml = pyamg.ruge_stuben_solver(self.A.to_scipy())
+        self.uh[:] = ml.solve(self.b, tol=1e-14)    
+        
+        return self.uh[:]
+        
+        
 
 
     def show_mesh_and_solution(self):

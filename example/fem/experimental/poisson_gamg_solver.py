@@ -16,7 +16,7 @@ next(tmr)
 
 # Different configurations: coarsest mesh size and number of refinements.
 configurations = [
-    (100,0),  
+    (2,6),  
     #(2, 4),   
     #(32, 6)   
 ]
@@ -29,13 +29,18 @@ for n, m in configurations:
     mesh = TriangleMesh.from_box(box=domain, nx=n, ny=n)
     IM = mesh.uniform_refine(n=m, returnim=True)
 
-    p = 1
+    p = 4
     s0 = PoissonLFEMSolver(pde, mesh, p, timer=tmr, logger=logger)
+  
     tmr.send(f"Running gamg_solve with (n, m) = ({n}, {m})")
     s0.gamg_solve()
     tmr.send(f"Completed gamg_solve for (n, m) = ({n}, {m})")
 
-s0.cg_solve()
+# s0.cg_solve()
+start_time = time.time()
+s0.pyamg_solve()
+end_time = time.time()
+print(f"Pyamg solver takes {end_time - start_time} seconds.")
 #s0.gs_solve()
 #s0.jacobi_solve()
 #s0.minres_solve()

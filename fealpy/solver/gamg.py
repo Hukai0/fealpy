@@ -284,9 +284,12 @@ class GAMGSolver():
 
         # Pre-smoothing
         for l in range(level, NL - 1, 1):
+            start_time = time.time()
             el = spsolve_triangular(self.L[l].to_scipy(), r[l])
             for i in range(self.sstep):
                 el += spsolve_triangular(self.L[l].to_scipy(), r[l] - self.A[l] @ el)
+            end_time = time.time()
+            print(f"Pre-smoothing time: {end_time-start_time}")
             e.append(el)
             r.append(self.R[l] @ (r[l] - self.A[l] @ el))
 

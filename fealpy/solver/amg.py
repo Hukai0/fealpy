@@ -31,8 +31,8 @@ def Ruge_Stuben_AMG(A,theta = 0.25):
     S = csr_matrix((Sx, Sj, Sp), shape=(n_row, n_row))
     Tp, Tj, _ = csr_transpose(Sp, Sj, Sx, (n_row, n_row))
     splitting = rs_cf_splitting(Sp, Sj, Tp, Tj, n_row)
-    #p,r = rs_direct_interpolation(Ap, Aj, Ax,Sp, Sj, Sx, splitting)
-    p,r = rs_standard_interpolation(A, S, splitting)
+    p,r = rs_direct_interpolation(Ap, Aj, Ax,Sp, Sj, Sx, splitting)
+    #p,r = rs_standard_interpolation(A, S, splitting)
     
     # Px, Pj, Pp, n_coarse = rs_direct_interpolation(Ap, Aj, Ax,Sp, Sj, Sx, splitting)
     # rp,rj,rx = csr_transpose(Pp, Pj, Px, (n_row, n_coarse))
