@@ -75,7 +75,7 @@ class DarcyForchheimerTPDv:
         self.update_frequency = int(update_frequency)
 
         # free pressure indices 
-        self.freep = bm.arange(self.Np - 1)
+        self.freep = bm.arange(self.Np)
         self.Bff = self.B[self.freep, :]
         self.Bfft = self.Bff.T
 
@@ -90,9 +90,13 @@ class DarcyForchheimerTPDv:
 
     def _update_mass(self):
 
-        self.Mu.coef = lambda bcs, index: self.pde.beta * bm.sqrt(
+        # self.Mu.coef = lambda bcs, index: self.pde.beta * bm.sqrt(
+        #     bm.sum(self.u0(bcs, index) ** 2, axis=-1)
+        # )
+        self.Mu.coef = lambda bcs, index: (bm.sqrt(
             bm.sum(self.u0(bcs, index) ** 2, axis=-1)
-        )
+        ))**(self.pde.q - 2)
+        
         self.M = self.u_bform.assembly()  # re-assemble mass matrix with updated coef
 
     
@@ -214,7 +218,7 @@ class DarcyForchheimerTPDv:
             resp[ite] = bm.linalg.norm(self.Bff @ unewAll - self.g[self.freep])
 
             # convergence check (relative to f norm)
-            if ite > 0 and (resu[ite] / bm.linalg.norm(self.f)) < self.tol:
+            if ite > 0 and (resp[ite] + resu[ite]) < self.tol:
                 # update stored iterates and break
                 uoldAll, poldAll = unewAll, pnewAll
                 resu = resu[:ite + 1]
