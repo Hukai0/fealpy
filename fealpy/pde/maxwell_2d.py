@@ -5,7 +5,7 @@ from ..decorator import cartesian, barycentric
 
 
 class SinData():
-    def __init__(self, eps = 1, k = 1):
+    def __init__(self, eps = - 1, k = 1):
         """
         @brief 求解方程 
                 curl curl E - eps E = J     Omega

@@ -102,7 +102,7 @@ for j, p in enumerate(ps):
 
         bform = BilinearForm(space)
         #bform.add_integrator(VectorMassIntegrator(coef=-1, q=p+3))
-        bform.add_integrator(ScalarMassIntegrator(coef=-1, q=p+3))
+        bform.add_integrator(ScalarMassIntegrator(coef=1, q=p+3))
         bform.add_integrator(CurlCurlIntegrator(coef=1, q=p+3))
         A = bform.assembly()
         tmr.send(f'第{i}次矩组装时间')

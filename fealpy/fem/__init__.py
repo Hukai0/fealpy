@@ -18,7 +18,7 @@ from .linear_elasticity_integrator import LinearElasticityIntegrator
 from .press_work_integrator import PressWorkIntegrator, PressWorkIntegratorX, PressWorkIntegratorY
 from .curlcurl_integrator import CurlCurlIntegrator
 from .nonlinear_elastic_integrator import NonlinearElasticIntegrator
-from .div_integrator import DivIntegrator
+from .div_integrator import DivIntegrator,DivIntegrator2
 from .viscous_work_integrator import ViscousWorkIntegrator
 from .scalar_biharmonic_integrator import ScalarBiharmonicIntegrator
 from .mthlaplace_integrator import MthLaplaceIntegrator

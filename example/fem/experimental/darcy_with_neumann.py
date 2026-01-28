@@ -17,14 +17,14 @@ from fealpy.solver import spsolve, cg, gmres
 from fealpy.model.darcy.cos_cos_data_2d import CosCosData2D
 
 bm.set_backend('numpy')
-udegree = 0
-pdegree = 1
+udegree = 2
+pdegree = 3
 
-q = 4
+q = 6
 pde = CosCosData2D()
 domain = pde.domain()
 
-mesh = TriangleMesh.from_box(domain, nx= 160, ny=160)
+mesh = TriangleMesh.from_box(domain, nx= 8, ny=8)
 
 pspace = LagrangeFESpace(mesh, p=pdegree)
 space = LagrangeFESpace(mesh, p=udegree, ctype='D')

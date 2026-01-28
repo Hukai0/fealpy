@@ -56,7 +56,7 @@ class Exp0009(BoxMesher2d):
         """Exact velocity u = (e^x sin(y), e^x cos(y))."""
         x, y = p[...,0], p[...,1]
         ex = bm.exp(x)
-        return bm.stack((ex * bm.sin(y), ex * bm.cos(y)), axis=-1)
+        return bm.stack((20*ex * bm.sin(20*y), ex * bm.cos(20*y)), axis=-1)
 
     @cartesian
     def pressure(self, p: TensorLike) -> TensorLike:
@@ -111,3 +111,11 @@ class Exp0009(BoxMesher2d):
     def pressure_dirichlet(self, p: TensorLike) -> TensorLike:
         """Unused Dirichlet pressure."""
         return self.pressure(p)
+    
+    @cartesian
+    def dirichlet(self, p, t):
+        val = self.solution(p)
+        if t.ndim == 2:
+            return bm.einsum('eqd, ed->eq', val, t)
+        else:
+            return bm.einsum("eqd,eqd->eq", val, t)

@@ -55,3 +55,47 @@ class DivIntegrator(LinearInt, OpInt, CellInt):
         val = process_coef_func(coef, bcs=bcs, mesh=mesh, etype='cell', index=index)
         result = bilinear_integral(div_phi, phi, ws, cm, val, batched=self.batched)
         return result
+
+class DivIntegrator2(LinearInt, OpInt, CellInt):
+    
+    def __init__(self, coef: Optional[CoefLike]=None, q: Optional[int]=None, *,
+                 index: Index=_S,
+                 batched: bool=False) -> None:
+        super().__init__()
+        self.coef = coef
+        self.q = q
+        self.index = index
+        self.batched = batched
+
+    @enable_cache
+    def to_global_dof(self, space: _FS) -> TensorLike:
+        return (space.cell_to_dof()[self.index])
+
+    @enable_cache
+    def fetch(self, space: _FS):
+
+
+        index = self.index
+        mesh = getattr(space, 'mesh', None)
+
+        if not isinstance(mesh, HomogeneousMesh):
+            raise RuntimeError("The PressWorkIntegrator only support spaces on"
+                               f"homogeneous meshes, but {type(mesh).__name__} is"
+                               "not a subclass of HomoMesh.")
+
+        cm = mesh.entity_measure('cell', index=index)
+        q = space.p+3 if self.q is None else self.q
+        qf = mesh.quadrature_formula(q, 'cell')
+        bcs, ws = qf.get_quadrature_points_and_weights()
+
+        phi = space.basis(bcs, index=index)
+        div_phi = space.div_basis(bcs ,index=index)
+        return div_phi, div_phi, cm, bcs, ws, index
+
+    def assembly(self, space: _FS) -> TensorLike:
+        coef = self.coef
+        mesh = getattr(space, 'mesh', None)
+        div_phi, div_phi, cm, bcs, ws, index = self.fetch(space)
+        val = process_coef_func(coef, bcs=bcs, mesh=mesh, etype='cell', index=index)
+        result = bilinear_integral(div_phi, div_phi, ws, cm, val, batched=self.batched)
+        return result

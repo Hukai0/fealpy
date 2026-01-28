@@ -48,8 +48,8 @@ class DarcyForchheimerFEMModel(ComputationalModel):
 
     def set_space_degree(self, pdegree: int = 1, udegree: int = 0):
         """Set FE spaces: pressure P^pdegree (continuous), velocity P^{udegree} (discontinuous)"""
-        self.pdegree = 2
-        self.udegree = 1
+        self.pdegree = 1
+        self.udegree = 0
 
         self.pspace = LagrangeFESpace(self.mesh, p=self.pdegree)
         space = LagrangeFESpace(self.mesh, p=self.udegree, ctype='D')
@@ -63,7 +63,7 @@ class DarcyForchheimerFEMModel(ComputationalModel):
         # build forms but do not assemble M (it will be assembled inside solvers)
         self.u_bform = BilinearForm(self.uspace)
         # linear viscous mass integrator (mu part)
-        self.u_bform.add_integrator(ScalarMassIntegrator(coef=self.pde.mu, q=4))
+        # self.u_bform.add_integrator(ScalarMassIntegrator(coef=self.pde.mu, q=4))
         # Mu is the integrator for beta*|u| part; set its coef dynamically in solvers
         self.Mu = ScalarMassIntegrator(q=4)
         self.u_bform.add_integrator(self.Mu)
@@ -96,8 +96,8 @@ class DarcyForchheimerFEMModel(ComputationalModel):
 
 
     @variantmethod("TPDv")
-    def solve(self, maxIt: int = 100, tol: float = 1e-8,
-              gamma0: float = 10, stepsize: float = 0.4, scaleu: float = 0.8):
+    def solve(self, maxIt: int = 200, tol: float = 1e-8,
+              gamma0: float = 10, stepsize: float = 0.1, scaleu: float = 0.8):
 
 
         B, f, g = self.linear_system()

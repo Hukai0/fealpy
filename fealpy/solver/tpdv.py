@@ -27,7 +27,7 @@ class DarcyForchheimerTPDv:
                  gamma0: float = 2.0,  # Relaxation parameter for Schur preconditioner
                  stepsize: float = 0.4,  # Step size for updates
                  scaleu: float = 0.8,  # Scaling factor for velocity update
-                 update_frequency: int = 5  # Frequency of updating AMG preconditioner
+                 update_frequency: int = 10  # Frequency of updating AMG preconditioner
                  ):
         """
         Initialization for Darcy-Forchheimer TPDv solver.
@@ -93,9 +93,9 @@ class DarcyForchheimerTPDv:
         # self.Mu.coef = lambda bcs, index: self.pde.beta * bm.sqrt(
         #     bm.sum(self.u0(bcs, index) ** 2, axis=-1)
         # )
-        self.Mu.coef = lambda bcs, index: (bm.sqrt(
+        self.Mu.coef = lambda bcs, index: self.pde.mu +self.pde.beta * (bm.sqrt(
             bm.sum(self.u0(bcs, index) ** 2, axis=-1)
-        ))**(self.pde.q - 2)
+        ))
         
         self.M = self.u_bform.assembly()  # re-assemble mass matrix with updated coef
 
@@ -198,7 +198,7 @@ class DarcyForchheimerTPDv:
             dp_rhs = self.g[self.freep] - self.Bff @ unew_tmp
 
             # occasionally update S0 and AMG preconditioner
-            if ite % self.update_frequency == 0:
+            if ite  == 1:
                 self._update_S()
             # print("S0",self.S0.to_dense())
             # print("dp_rhs:", dp_rhs)
@@ -211,6 +211,7 @@ class DarcyForchheimerTPDv:
 
             # velocity update (explicit convex combination)
             unewAll = (1.0 - self.stepsize) * uoldAll + self.stepsize * unew_tmp
+            self.u0[:] = unewAll
             self._update_mass()
             # record residuals
             

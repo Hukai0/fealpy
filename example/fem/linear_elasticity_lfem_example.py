@@ -23,8 +23,8 @@ model.set_pde(5)
 # model.set_pde("boxsinsin2d")  
 
 #model.set_init_mesh(meshtype='uniform_tri')
-model.set_init_mesh(meshtype='custom_hex')
-# model.set_init_mesh(meshtype='uniform_tet', nx=10, ny=10, nz=10)
+# model.set_init_mesh(meshtype='custom_hex')
+model.set_init_mesh(meshtype='uniform_tet', nx=4, ny=4, nz=4)
 
 
 model.set_space_degree(p=1)
