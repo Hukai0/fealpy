@@ -4,6 +4,7 @@ from ..sparse import spdiags,csr_matrix
 from ..solver import GAMGSolver
 from ..backend import TensorLike
 
+
 class DarcyForchheimerTPDv:
     """
     Simplified TPDv solver for Darcy-Forchheimer problems.
@@ -61,6 +62,8 @@ class DarcyForchheimerTPDv:
         self.Nu = int(self.B.shape[1])
         self.Np = int(self.B.shape[0])
         self.Nt = self.Nu // 2  # Number of elements (2D vector field)
+        self.mesh = self.u_bform.space.mesh
+        self.uspace = self.u_bform.space
 
         # prepare initial guesses
         self.u0 = u0
@@ -106,12 +109,19 @@ class DarcyForchheimerTPDv:
         if self.S0 is None:
             self.S0 = self.Bff @ (Minv @ self.Bfft)
         else:
-            S = self.Bff @ (Minv @ self.Bfft)
+            if type == 'Jainv':
+                #self.S0 = self.Bff @ (Minv @ self.Bfft)
+                S = self.Bff @ (Minv @ self.Bfft)    
+                self.S0 = (self.S0 + self.gamma0 * self.stepsize * S) / (1.0 + self.gamma0 * self.stepsize)
                 # relaxation / smoothing of S0
-            self.S0 = (self.S0 + self.gamma0 * self.stepsize * S) / (1.0 + self.gamma0 * self.stepsize)
-        self.S0 = self.S0.sum_duplicates()
-        self.mg = GAMGSolver()
-        self.mg.setup(self.S0)
+            else:
+                S = self.Bff @ (Minv @ self.Bfft)    
+                self.S0 = (self.S0 + self.gamma0 * self.stepsize * S) / (1.0 + self.gamma0 * self.stepsize)
+        # self.S0 = self.S0.sum_duplicates()
+        import pyamg
+        self.mg = pyamg.ruge_stuben_solver(self.S0.to_scipy().tocoo().tocsr())
+        # self.mg = GAMGSolver()
+        # self.mg.setup(self.S0)
         
         
     def Jacobian(self):
@@ -158,6 +168,31 @@ class DarcyForchheimerTPDv:
 
         return Jinv
     
+    def Jinv2(self):
+
+        GDOF = self.uspace.number_of_global_dofs()
+        Nt = self.mesh.number_of_cells()
+        cm = self.mesh.entity_measure('cell')
+        qf = self.mesh.quadrature_formula(3,'cell')
+        bcs,ws = qf.get_quadrature_points_and_weights()
+        cell2dof = self.uspace.cell_to_dof()
+        u = self.u0(bcs)
+        phi = self.uspace.basis(bcs)
+        fphi = bm.einsum('cqd,cqid->cqi', u, phi)
+        coef = self.pde.beta/bm.sqrt(bm.sum(self.u0(bcs) ** 2, axis=-1))
+        K = bm.einsum('q,c,cqi,cqj,cq->cij', ws, cm, fphi, fphi, coef)
+        coef2 = self.pde.mu + self.pde.beta * bm.sqrt(bm.sum(self.u0(bcs) ** 2, axis=-1))
+        S = bm.einsum('q,c,cqid,cqjd,cq->cij', ws, cm, phi, phi, coef2)
+        W = K + S
+        R = bm.zeros_like(W)
+        for i in range(Nt):
+            R[i] = bm.linalg.inv(W[i])
+        I = bm.broadcast_to(cell2dof[:, :, None], shape=K.shape)
+        J = bm.broadcast_to(cell2dof[:, None, :], shape=K.shape)
+        M = csr_matrix((R.ravel(), (I.ravel(), J.ravel())), 
+                    shape=(GDOF, GDOF))
+        return M
+
     def MJinv(self):
         Jinv = self.Jinv()
         mesh = self.u_bform.space.mesh
@@ -182,7 +217,7 @@ class DarcyForchheimerTPDv:
         # initially M, S0, mg already prepared in __init__
         for ite in range(self.maxIt):
             
-            self.u0[:] = uoldAll
+            # self.u0[:] = uoldAll
             # explicit/transport step (prediction)
             Bp = self.Bfft @ poldAll[self.freep] 
             # print("M",self.M.diags().values)# B^T p on velocity space
@@ -199,7 +234,8 @@ class DarcyForchheimerTPDv:
             # print("S0",self.S0.to_dense())
             # print("dp_rhs:", dp_rhs)
             # solve Schur system approximately via AMG
-            dpAll, _ = self.mg.solve(dp_rhs)
+            # dpAll, _ = self.mg.solve(dp_rhs)
+            dpAll = self.mg.solve(dp_rhs)
             # print("dpAll:", dpAll)
             pnew = poldAll[self.freep] - (self.stepsize / self.scaleu) * dpAll
             pnewAll = poldAll.copy()
@@ -207,6 +243,7 @@ class DarcyForchheimerTPDv:
 
             # velocity update (explicit convex combination)
             unewAll = (1.0 - self.stepsize) * uoldAll + self.stepsize * unew_tmp
+            # self.u0[:] = unewAll
             self._update_mass()
             # record residuals
             
@@ -326,9 +363,9 @@ class DarcyForchheimerTPDv:
             Bp = self.Bfft @ poldAll[self.freep]
             ru = self.M @ uoldAll + Bp - self.f
             rp = -(self.Bff @ uoldAll - self.g[self.freep])
-            MJinv = self.MJinv()
+            MJinv = self.Jinv2()
             rp = self.Bff @ (MJinv @ ru) + rp
-            dpAll,_ = self.mg.solve(rp)
+            dpAll = self.mg.solve(rp)
             du = MJinv @ (ru - self.Bfft @ dpAll[self.freep])
             unewAll = uoldAll - self.stepsize * du
             pnewAll = poldAll.copy()

@@ -14,7 +14,7 @@ parser.add_argument('--backend',
     help="Default backend is numpy. You can also choose pytorch, jax, tensorflow, etc.")
 
 parser.add_argument('--pde',
-    default=1, type=int,
+    default=7, type=int,
     help="Name of thes PDE model, default is opc")
 
 parser.add_argument('--init_mesh',
@@ -59,8 +59,9 @@ def recover_p1_from_cell_mean(mesh, uh):
     for z in range(NN):
         cell = node2cells[z,:]
         cells = bm.where(cell == True)[0]
-        if len(cells) < 4:  # 边界点
+        if len(cells) < 0:  # 边界点
             Rh_uh[z] = bm.mean(uh[cells])
+            # Rh_uh[z] = 0
         else:
             A = []
             b = []
@@ -78,18 +79,17 @@ def recover_p1_from_cell_mean(mesh, uh):
             Rh_uh[z] = coef[0] + coef[1]*xz + coef[2]*yz
 
     return Rh_uh # shape = (NN,)
-# 解析参数
-options = vars(parser.parse_args())
 
+options = vars(parser.parse_args())
 from fealpy.backend import bm
 bm.set_backend(options['backend'])
 
-from fealpy.fem import OPCMixedFEMModel
+from fealpy.fem import TwoGridOPCMixedFEMModel
 from fealpy.decorator import barycentric, cartesian
 from fealpy.utils import timer
 from fealpy.functionspace import LagrangeFESpace
 
-maxit_norm = 4
+maxit_norm = 6
 errorType = ['$|| p - p_h||_{L2}$ ',
              '$|| q - q_h||_{L2}$ ',
              '$|| u - u_h||_{L2}$ ',
@@ -107,12 +107,9 @@ for i in range(maxit_norm):
     next(tmr)
     next(tmr_all)
 
-    model = OPCMixedFEMModel(options)
-    maxit = 20  # Maximum number of iterations for the optimization process
+    model = TwoGridOPCMixedFEMModel(options)
+    maxit = 20  
     model.mesh.uniform_refine(n=i)
-    # mesh = model.mesh
-    # node2cell = mesh.node_to_cell()
-    # print(node2cell.toarray())
     space1,space2 = model.space(p=0)
     pdof = space2.dof.number_of_global_dofs()
     ydof = space1.dof.number_of_global_dofs()
@@ -131,11 +128,84 @@ for i in range(maxit_norm):
     xh = bm.zeros((pdof + ydof), dtype=bm.float64)
     hx = bm.zeros((qdof + zdof), dtype=bm.float64)
 
+    # for j in range(maxit):
+    #     pde = model.pde
+    #     A, b_forward = model.linear_system(p=0, s1=0, s2=0, s3=pde.f_fun, s4=u0)
+    #     tmr.send('第{}次迭代：正向求解组装线性系统时间'.format(j))
+    #     A, b_forward = model.apply_bc(A, b_forward, gd=pde.y_solution)
+    #     tmr.send('第{}次迭代：正向求解应用边界条件时间'.format(j))
+    #     xh[:] = model.solve(A, b_forward)
+    #     tmr.send('第{}次迭代：正向求解求解线性系统时间'.format(j))
+    #     p1[:] = xh[:pdof]
+    #     y1[:] = xh[pdof:]
+    #     @barycentric
+    #     def coef_p(bcs, index=None):
+    #         result = - p1(bcs, index)
+    #         return result
+    #     @cartesian
+    #     def coef_pd(p, index=None):
+    #         result = pde.pd_fun(p)
+    #         return result
+    #     @barycentric
+    #     def coef_y(bcs, index=None):
+    #         return y1(bcs) 
+    #     @cartesian
+    #     def coef_yd(p, index=None):
+    #         return -pde.yd_fun(p)
+    #     A,b_backward = model.linear_system(p=0 ,s1=coef_p, s2=coef_pd, s3=coef_y, s4=coef_yd)
+    #     tmr.send('第{}次迭代：反向求解组装线性系统时间'.format(j))
+    #     A, b_backward = model.apply_bc(A, b_backward, gd=pde.z_solution)
+    #     tmr.send('第{}次迭代：反向求解应用边界条件时间'.format(j))
+    #     hx[:]= model.solve(A, b_backward)
+    #     tmr.send('第{}次迭代：反向求解求解线性系统时间'.format(j))
+    #     q1[:] = hx[:qdof]
+    #     z1[:] = hx[qdof:]
+    #     # 假设控制系数为1  
+    #     nu = 1
+    #     u1[:] = -z1
+    #     mesh = model.mesh
+    #     p_error = mesh.error(p0,p1)
+    #     q_error = mesh.error(q0,q1)
+    #     y_error = mesh.error(y0,y1)
+    #     z_error = mesh.error(z0,z1)
+    #     p0[:] = p1[:]
+    #     q0[:] = q1[:]
+    #     y0[:] = y1[:]
+    #     z0[:] = z1[:]
+    #     u0[:] = u1[:]
+    #     if p_error < 1e-14:
+    #         print('p收敛',p_error)
+    #         print('q收敛',q_error)
+    #         print('y收敛',y_error)
+    #         print('z收敛',z_error)
+    #         break
+
+    # G = model.mesh.uniform_refine(n=1,return_cellim = True)
+    # print("G.shape",G[-1].shape)
+    # space1,space2 = model.space(p=0)
+    # pdof = space2.dof.number_of_global_dofs()
+    # ydof = space1.dof.number_of_global_dofs()
+    # qdof = space2.dof.number_of_global_dofs()
+    # zdof = space1.dof.number_of_global_dofs()
+    # y0 = space1.function()
+    # y1 = space1.function()
+    # p0 = space2.function()
+    # q0 = space2.function()
+    # q1 = space2.function()
+    # z0 = space1.function()
+    # z1 = space1.function()
+    # p1 = space2.function() 
+    # u0 = space1.function()
+    # u0[:] = G[-1] @ u1[:]
+    # u1 = space1.function()
+    # xh = bm.zeros((pdof + ydof), dtype=bm.float64)
+    # hx = bm.zeros((qdof + zdof), dtype=bm.float64)
+
     for j in range(maxit):
         pde = model.pde
         A, b_forward = model.linear_system(p=0, s1=0, s2=0, s3=pde.f_fun, s4=u0)
         tmr.send('第{}次迭代：正向求解组装线性系统时间'.format(j))
-        # A, b_forward = model.apply_bc(A, b_forward, gd=pde.y_solution)
+        A, b_forward = model.apply_bc(A, b_forward, gd=pde.y_solution)
         tmr.send('第{}次迭代：正向求解应用边界条件时间'.format(j))
         xh[:] = model.solve(A, b_forward)
         tmr.send('第{}次迭代：正向求解求解线性系统时间'.format(j))
@@ -157,7 +227,7 @@ for i in range(maxit_norm):
             return -pde.yd_fun(p)
         A,b_backward = model.linear_system(p=0 ,s1=coef_p, s2=coef_pd, s3=coef_y, s4=coef_yd)
         tmr.send('第{}次迭代：反向求解组装线性系统时间'.format(j))
-        # A, b_backward = model.apply_bc(A, b_backward, gd=pde.z_solution)
+        A, b_backward = model.apply_bc(A, b_backward, gd=pde.z_solution)
         tmr.send('第{}次迭代：反向求解应用边界条件时间'.format(j))
         hx[:]= model.solve(A, b_backward)
         tmr.send('第{}次迭代：反向求解求解线性系统时间'.format(j))
@@ -165,7 +235,7 @@ for i in range(maxit_norm):
         z1[:] = hx[qdof:]
         # 假设控制系数为1  
         nu = 1
-        u1[:] = bm.maximum(0,-z1/nu)
+        u1[:] = -z1
         mesh = model.mesh
         p_error = mesh.error(p0,p1)
         q_error = mesh.error(q0,q1)
@@ -176,12 +246,13 @@ for i in range(maxit_norm):
         y0[:] = y1[:]
         z0[:] = z1[:]
         u0[:] = u1[:]
-        if p_error < 1e-14:
+        if p_error < 1e-8:
             print('p收敛',p_error)
             print('q收敛',q_error)
             print('y收敛',y_error)
             print('z收敛',z_error)
             break
+
 
     # qsolution = space2.interpolation(pde.q_solution)
     # errorq = bm.max(bm.abs(q1-qsolution))
@@ -238,3 +309,4 @@ for i in range(maxit_norm):
 
 
 print(errorp)
+print(errorMatrix)

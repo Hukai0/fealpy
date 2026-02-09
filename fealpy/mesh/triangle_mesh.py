@@ -361,7 +361,7 @@ class TriangleMesh(SimplexMesh, Plotable):
         length = bm.sqrt(bm.square(v).sum(axis=1))
         return v/length.reshape(-1, 1)
 
-    def uniform_refine(self, n=1, surface=None, interface=None, returnim=False):
+    def uniform_refine(self, n=1, surface=None, interface=None, returnim=False,return_cellim=False):
         """
         Uniform refine the triangle mesh n times.
 
@@ -376,6 +376,9 @@ class TriangleMesh(SimplexMesh, Plotable):
         """
         if returnim is True:
             IM = []
+
+        if return_cellim is True:
+            CIM = []
             
         for i in range(n):
             NN = self.number_of_nodes()
@@ -405,6 +408,15 @@ class TriangleMesh(SimplexMesh, Plotable):
 
                 IM.append(P)
             
+                    # ---------- 构造单元到单元的 prolongation ----------
+            if return_cellim is True:
+
+                rows = bm.repeat(bm.arange(NC), 4) + bm.tile(bm.arange(0, 4*NC, NC), NC)
+                cols = bm.repeat(bm.arange(NC), 4)
+                vals = bm.ones(4*NC, dtype=float)
+                Pcell = csr_matrix((vals, (rows, cols)), shape=(4*NC, NC))
+                CIM.append(Pcell)
+            
             self.node = bm.concatenate((node, newNode), axis=0)
             p = bm.concatenate((cell, edge2newNode[cell2edge]), axis=1)
             self.cell = bm.concatenate(
@@ -415,6 +427,9 @@ class TriangleMesh(SimplexMesh, Plotable):
         if returnim is True:
             IM.reverse()
             return IM
+        if return_cellim is True:
+            CIM.reverse()
+            return CIM
 
     def is_crossed_cell(self, point, segment):
         """

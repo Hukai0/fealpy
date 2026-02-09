@@ -15,7 +15,7 @@ from fealpy.model import PDEModelManager
 from fealpy.decorator import variantmethod
 from fealpy.mesh import Mesh
 
-class OPCMixedFEMModel(ComputationalModel):
+class TwoGridOPCMixedFEMModel(ComputationalModel):
     """
     OPCRTFEMModel: Optimal Control Problem Raviart-Thomas Finite Element Model
 
@@ -148,7 +148,7 @@ class OPCMixedFEMModel(ComputationalModel):
         bform3.add_integrator(DivIntegrator(coef=1, q=3))
 
         bform4 = BilinearForm(self.uspace)
-        bform4.add_integrator(ScalarMassIntegrator(coef=self.pde.c, q=3))
+        bform4.add_integrator(ScalarMassIntegrator(coef=self.pde.C_matrix, q=3))
 
         M = BlockForm([[bform1,bform2],
                        [bform3.T,bform4]])
@@ -184,21 +184,6 @@ class OPCMixedFEMModel(ComputationalModel):
         self.xh[:] = spsolve(A, b, solver='scipy')
         return self.xh
     
-    @solve.register('amg')
-    def solve(self, A, F):
-        pass
-
-    @solve.register('cg')
-    def solve(self, A, b):
-        from fealpy.solver import cg 
-        self.xh[:], info = cg(A, b, maxit=5000, atol=1e-14, rtol=1e-14, returninfo=True)
-        res = info['residual']
-        res_0 = bm.linalg.norm(b)
-        stop_res = res/res_0
-        self.logger.info(f"CG solver with {info['niter']} iterations"
-                         f" and relative residual {stop_res:.4e}")
-
-        
     def postprocess(self, uh, ph, solution1, solution2):
         """
         Post-process the numerical solution to compute the error in L2 norm.

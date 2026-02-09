@@ -3,7 +3,7 @@ from typing import Union
 
 from ..backend import bm
 from ..mesh import Mesh, TriangleMesh
-from ..functionspace import TensorFunctionSpace, LagrangeFESpace
+from ..functionspace import TensorFunctionSpace, LagrangeFESpace,RaviartThomasFESpace2d
 from ..fem import BilinearForm, LinearForm, BlockForm
 from ..fem import ScalarSourceIntegrator, ScalarNeumannBCIntegrator, ScalarMassIntegrator, GradPressureIntegrator
 from ..model import PDEModelManager, ComputationalModel
@@ -20,7 +20,7 @@ class DarcyForchheimerFEMModel(ComputationalModel):
                          log_level=options.get('log_level', 'INFO'))
         self.set_pde(options.get('pde', 3))
         self.set_init_mesh(options.get('init_mesh', "uniform_tri"),
-                           nx=options.get('nx',16), ny=options.get('ny', 16))
+                           nx=options.get('nx',20), ny=options.get('ny',20))
         self.set_space_degree(options.get('pdegree', 1), options.get('udegree', 0))
 
     def set_pde(self, pde: Union[int, object] = 1):
@@ -29,7 +29,7 @@ class DarcyForchheimerFEMModel(ComputationalModel):
             self.pde = PDEModelManager('darcyforchheimer').get_example(pde)
             self.logger.info(f"PDE initialized from id: '{pde}'")
         else:
-            self.pde = pde
+            self.pde = pde 
             self.logger.info(f"PDE initialized from instance: {type(pde).__name__}")
 
     def set_init_mesh(self, mesh: Union[Mesh, str] = "uniform_tri", **kwargs):
@@ -48,17 +48,23 @@ class DarcyForchheimerFEMModel(ComputationalModel):
 
     def set_space_degree(self, pdegree: int = 1, udegree: int = 0):
         """Set FE spaces: pressure P^pdegree (continuous), velocity P^{udegree} (discontinuous)"""
-        self.pdegree = 2
-        self.udegree = 1
+        self.pdegree = 0
+        self.udegree = 0
 
-        self.pspace = LagrangeFESpace(self.mesh, p=self.pdegree)
-        space = LagrangeFESpace(self.mesh, p=self.udegree, ctype='D')
-        self.uspace = TensorFunctionSpace(space, (-1,2))
+        self.pspace = LagrangeFESpace(self.mesh, p=self.pdegree, ctype='D')
+        # space = LagrangeFESpace(self.mesh, p=self.udegree, ctype='D')
+        self.uspace = RaviartThomasFESpace2d(self.mesh, p=self.udegree)
+        # self.uspace = TensorFunctionSpace(space, (-1,2))
 
         # FE functions
 
-        self.u0 = self.uspace.function() + 1 # used for Mu.coef callback
-        self.p0 = self.pspace.function() + 1
+        self.u0 = self.uspace.function()  # used for Mu.coef callback
+        # self.u0[:] = self.uspace.interpolate(self.pde.velocity)
+        self.u0[:] = bm.random.randn(self.uspace.number_of_global_dofs())
+
+        self.p0 = self.pspace.function() 
+        # self.p0[:] = self.pspace.interpolate(self.pde.pressure)
+        self.p0[:] = bm.random.randn(self.pspace.number_of_global_dofs())
 
         # build forms but do not assemble M (it will be assembled inside solvers)
         self.u_bform = BilinearForm(self.uspace)
@@ -78,17 +84,18 @@ class DarcyForchheimerFEMModel(ComputationalModel):
         self.plform = LinearForm(self.pspace)
         self.plform.add_integrator(ScalarSourceIntegrator(self.pde.g, q=4))
         # try to add neumann if exists
-        try:
-            self.plform.add_integrator(ScalarNeumannBCIntegrator(source=self.pde.neumann, q=4))
-        except Exception:
-            pass
+        # try:
+        #     self.plform.add_integrator(ScalarNeumannBCIntegrator(source=self.pde.neumann, q=4))
+        # except Exception:
+        #     pass
 
     def linear_system(self):
 
         B = self.p_bform.assembly().T
         f = self.ulform.assembly()
         g = self.plform.assembly()
-        return B, f, g
+        # G_apply = self.pspace.set_neumann_bc()
+        return -B, f, g
 
     def apply_bc(self, A, F):
      
@@ -96,16 +103,10 @@ class DarcyForchheimerFEMModel(ComputationalModel):
 
 
     @variantmethod("TPDv")
-    def solve(self, maxIt: int = 100, tol: float = 1e-8,
-              gamma0: float = 10, stepsize: float = 0.4, scaleu: float = 0.8):
-
+    def solve(self, maxIt: int = 500, tol: float = 1e-8,
+              gamma0: float = 0.4, stepsize: float = 0.8, scaleu: float = 4):
 
         B, f, g = self.linear_system()
-        # initial u0/p0: if not provided, use current stored ones or random
-        if bm.any(self.u0[:] == 0):
-            self.u0[:] = bm.random.rand(self.uspace.number_of_global_dofs())
-        if bm.any(self.p0[:] == 0):
-            self.p0[:] = bm.random.rand(self.pspace.number_of_global_dofs())
         uh = self.uspace.function()
         ph = self.pspace.function()
         # call your TPDv (expects B,f,g,u_bform,Mu,pde,u0,p0,...)
