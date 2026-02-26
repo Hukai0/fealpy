@@ -38,47 +38,51 @@ parser.add_argument('--log_level',
     help="Log level, default is INFO, options are DEBUG, INFO, WARNING, ERROR, CRITICAL")
 
 
+
 def recover_p1_from_cell_mean(mesh, uh):
-    """
-    使用单元积分均值拟合得到 P1 恢复函数值。
-    @param mesh: TriangleMesh
-    @param uh_cell: (NC,) array, 每个单元上的数值解 u_h
-    @return: (NN,) array, 每个节点处恢复的值 R_h u_h
-    """
     NC = mesh.number_of_cells()
     NN = mesh.number_of_nodes()
-    node = mesh.entity('node') # (NN, 2)
-    cell = mesh.entity('cell') # (NC, 3)
-    cell_node = node[cell] # (NC,3, 2)
-    bary = bm.mean(cell_node, axis=1) # (NC, 2), 每个单元的重心坐标
-    area = mesh.entity_measure('cell') # |τ|
-    node2cells = mesh.node_to_cell().toarray()  
+    node = mesh.entity('node')      # (NN, 2)
+    cell = mesh.entity('cell')      # (NC, 3)
 
-    Rh_uh = bm.zeros(NN) 
+    cell_node = node[cell]          # (NC, 3, 2)
+    bary = bm.mean(cell_node, axis=1)   # (NC, 2)
+    area = mesh.entity_measure('cell')  # (NC,)
+
+    # node_to_cell 是 CSR：行=节点，列=单元，非零表示相邻
+    node2cell = mesh.node_to_cell()     # csr_matrix
+    indptr = node2cell.indptr
+    indices = node2cell.indices         # 每行非零对应的列号（也就是 cell id）
+
+    Rh_uh = bm.zeros(NN)
 
     for z in range(NN):
-        cell = node2cells[z,:]
-        cells = bm.where(cell == True)[0]
-        if len(cells) < 0:  # 边界点
-            Rh_uh[z] = bm.mean(uh[cells])
-            # Rh_uh[z] = 0
-        else:
-            A = []
-            b = []
-            for k in cells:
-                x, y = bary[k]
-                w = area[k]
-                uh_mean = uh[k]
-                A.append([w, w*x, w*y])
-                b.append(uh_mean * w) # 积分近似值
-            A = bm.array(A)
-            b = bm.array(b)
+        cells = indices[indptr[z]:indptr[z+1]]  # z 这个节点相邻的单元编号列表（1D）
+        if len(cells) == 0:  # 孤立点/异常情况（正常网格一般不会出现）
+            Rh_uh[z] = 0.0
+            continue
 
-            coef, *_ = bm.linalg.lstsq(A, b, rcond=None) # 拟合 p(x,y) = a + b x + c y
-            xz, yz = node[z]
-            Rh_uh[z] = coef[0] + coef[1]*xz + coef[2]*yz
+        # 你原来的 if len(cells) < 0 永远不会触发，这里如果你想区分边界点，需要别的判据
+        # 这里只按“有相邻单元就做拟合/平均”处理
 
-    return Rh_uh # shape = (NN,)
+        A = []
+        b = []
+        for k in cells:
+            x, y = bary[k]
+            w = area[k]
+            uh_mean = uh[k]
+            A.append([w, w*x, w*y])
+            b.append(uh_mean * w)
+
+        A = bm.array(A)
+        b = bm.array(b)
+
+        coef, *_ = bm.linalg.lstsq(A, b, rcond=None)
+        xz, yz = node[z]
+        Rh_uh[z] = coef[0] + coef[1]*xz + coef[2]*yz
+
+    return Rh_uh
+
 
 options = vars(parser.parse_args())
 from fealpy.backend import bm
