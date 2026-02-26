@@ -20,8 +20,8 @@ class Exp0005(BoxMesher2d):
         # 基本表达式
         self.y = sp.cos(sp.pi * x1) * sp.cos(sp.pi * x2) * sp.exp(t)                # y(x,t)
         self.z =  sp.cos(2*sp.pi * x1) * sp.cos(2*sp.pi * x2) * (1 - t)                  # z(x,t)
-        # self.u = -self.z                     # z(x,t)
-        self.u = sp.Max(0, -self.z)                    # z(x,t)
+        # self.u = sp.Max(0, -self.z)                    # z(x,t)
+        self.u = -self.z
         # self.u = bm.maximum(1, bm.minimum(3 ,-self.z))                            # u(x,t) = -z
 
         # flux p 
@@ -86,15 +86,30 @@ class Exp0005(BoxMesher2d):
         result = sp.lambdify([x1, x2, t], sp.diff(self.z, t), self.manager)
         return result(space[...,0], space[...,1], time)
 
+    # @cartesian
+    # def u_solution(self, space, time):
+    #     """ u(x,t) """
+    #     x1 = self.x1
+    #     x2 = self.x2
+    #     t = self.t
+    #     func = sp.lambdify([x1, x2, t], self.u, "numpy")
+    #     x = space[..., 0]; y = space[..., 1]
+    #     return func(x, y, time)
+    
     @cartesian
     def u_solution(self, space, time):
-        """ u(x,t) """
         x1 = self.x1
         x2 = self.x2
         t = self.t
-        func = sp.lambdify([x1, x2, t], self.u, "numpy")
-        x = space[..., 0]; y = space[..., 1]
-        return func(x, y, time)
+
+        func = sp.lambdify([x1, x2, t], -self.z, "numpy")
+
+        x = space[..., 0]
+        y = space[..., 1]
+
+        val = func(x, y, time)
+
+        return bm.maximum(0, val)
 
     @cartesian
     def p_solution(self, space, time):

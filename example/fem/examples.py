@@ -89,7 +89,7 @@ from fealpy.decorator import barycentric, cartesian
 from fealpy.utils import timer
 from fealpy.functionspace import LagrangeFESpace
 
-maxit_norm = 6
+maxit_norm = 4
 errorType = ['$|| p - p_h||_{L2}$ ',
              '$|| q - q_h||_{L2}$ ',
              '$|| u - u_h||_{L2}$ ',
@@ -277,9 +277,9 @@ for i in range(maxit_norm):
     errorp[i] = error
 
 
-    errorl2y, errorl2p = model.postprocess_interpolate(y1, p1, solution1=pde.y_solution, solution2=pde.p_solution)
-    errorl2u, errorl2q = model.postprocess_interpolate(u1, q1, solution1=pde.u_solution, solution2=pde.q_solution)
-    errorl2z, errorl2pd = model.postprocess_interpolate(z1, p1, solution1=pde.z_solution, solution2=pde.p_solution)
+    errorl2y, errorl2p = model.postprocess(y1, p1, solution1=pde.y_solution, solution2=pde.p_solution)
+    errorl2u, errorl2q = model.postprocess(u1, q1, solution1=pde.u_solution, solution2=pde.q_solution)
+    errorl2z, errorl2pd = model.postprocess(z1, p1, solution1=pde.z_solution, solution2=pde.p_solution)
     print('第{}次迭代：p误差={}, q误差={}, u误差={}, y误差={}, z误差={}'
           .format(i, errorl2p, errorl2q, errorl2u, errorl2y, errorl2z))
     errorMatrix[0, i] = errorl2p

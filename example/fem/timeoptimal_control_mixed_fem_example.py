@@ -48,5 +48,5 @@ from fealpy.decorator import barycentric, cartesian
 from fealpy.utils import timer
 
 tof = TimeOPCMixedFEMModel(options)
-errorMatrix = tof.refine_run(reit=2)
+errorMatrix = tof.refine_run(reit=5)
 print(errorMatrix)

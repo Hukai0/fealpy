@@ -18,6 +18,7 @@ from fealpy.mesh import Mesh
 from functools import partial
 from fealpy.decorator import barycentric, cartesian
 from fealpy.solver import spsolve
+from fealpy.utils import timer
 
 class TimeOPCMixedFEMModel(ComputationalModel):
     """
@@ -219,30 +220,36 @@ class TimeOPCMixedFEMModel(ComputationalModel):
         b_apply = bm.concatenate([G_apply,F],axis=0)
         b = b - b_apply
         return A, b
-    
-    def time_step(self,allu,allp,ally,allz,allq,A):
 
+    def time_step(self, allu, allp, ally, allz, allq, A, it=0, tmr=None):
         pGDOF = self.pspace.number_of_global_dofs()
-        for n in range(1,self.nt+1):
-            tn  = self.t0 + n * self.tau
+
+        for n in range(1, self.nt+1):
+            tn = self.t0 + n * self.tau
             y = ally[n-1]
-        
+
             @cartesian
             def fn(p, index=None):
-                result = self.tau*self.pde.f_fun(p, time=tn)
-                return result
-            b   = self.assembly_forward_b(y,fn,allu[n])
-            A,b = self.apply_bc(A,b,gd =(partial(self.pde.y_solution,time=tn)))
-            self.xh[:] = spsolve(A, b, solver='scipy')
-            
+                return self.tau*self.pde.f_fun(p, time=tn)
+
+            b = self.assembly_forward_b(y, fn, allu[n])
+
+            A_copy = A.copy()
+            A_copy, b = self.apply_bc(A_copy, b, gd=partial(self.pde.y_solution, time=tn))
+            self.xh[:] = spsolve(A_copy, b, solver='scipy')
+
             p2 = self.pspace.function()
             y2 = self.yspace.function()
             p2[:] = self.xh[:pGDOF]
             y2[:] = self.xh[pGDOF:]
             ally[n] = y2
             allp[n] = p2
-        
-        for i in bm.arange(self.nt-1, -1, -1): 
+
+        if tmr is not None:
+            tmr.send(f'第{it}次迭代：正向求解时间')
+
+
+        for i in bm.arange(self.nt-1, -1, -1):
             tn = self.t0 + i * self.tau
             y = ally[i+1]
             p = allp[i+1]
@@ -250,26 +257,25 @@ class TimeOPCMixedFEMModel(ComputationalModel):
 
             @barycentric
             def pn(bcs, index=None):
-                result = p(bcs)
-                return -result
-            
+                return -p(bcs)
+
             @cartesian
             def pd(bcs, index=None):
-                result = self.pde.pd_fun(bcs, time=tn+self.tau)
-                return result
-            
+                return self.pde.pd_fun(bcs, time=tn+self.tau)
+
             @barycentric
             def yn(bcs, index=None):
-                result = self.tau* y(bcs)
-                return result
-            
+                return self.tau*y(bcs)
+
             @cartesian
             def yd(bcs, index=None):
-                result = -self.tau*self.pde.yd_fun(bcs, time=tn+self.tau)
-                return result
-            b   = self.assembly_backward_b(z,pn,pd,yn,yd)
-            A,b = self.apply_bc(A,b,gd =(partial(self.pde.z_solution,time=tn+self.tau)))
-            self.xh[:] = spsolve(A, b, solver='mumps')
+                return -self.tau*self.pde.yd_fun(bcs, time=tn+self.tau)
+
+            b = self.assembly_backward_b(z, pn, pd, yn, yd)
+
+            A_copy = A.copy()
+            A_copy, b = self.apply_bc(A_copy, b, gd=partial(self.pde.z_solution, time=tn+self.tau))
+            self.xh[:] = spsolve(A_copy, b, solver='scipy')
 
             q2 = self.pspace.function()
             z2 = self.yspace.function()
@@ -277,89 +283,98 @@ class TimeOPCMixedFEMModel(ComputationalModel):
             z2[:] = self.xh[pGDOF:]
             allz[i] = z2
             allq[i] = q2
-        
-        for i in bm.arange(1,self.nt+1): 
+
+        if tmr is not None:
+            tmr.send(f'第{it}次迭代：反向求解时间')
+
+        # -------- update control --------
+        for i in bm.arange(1, self.nt+1):
             z = allz[i-1]
             ufunction = self.yspace.function()
             ufunction[:] = bm.maximum(0, -z)
+            #ufunction[:] = bm.maximum(0.5, bm.minimum(1,-z))
             allu[i] = ufunction
 
-        return allu,allp,ally,allz,allq
+        return allu, allp, ally, allz, allq
 
-    def run(self):
-
+    def run(self, tmr=None):
         maxit = 10
         allu = [None]*(self.nt+1)
         ally = [None]*(self.nt+1)
         allp = [None]*(self.nt+1)
         allz = [None]*(self.nt+1)
         allq = [None]*(self.nt+1)
-        self.pspace, self.yspace = self.space()
-        zn = self.yspace.function(self.yspace.interpolate(partial(self.pde.z_solution, time=self.t1)))
-        allz[-1] = zn
-        y0 = self.yspace.function(self.yspace.interpolate(partial(self.pde.y_solution, time=0)))
-        ally[0] = y0
 
-        u0 = self.yspace.function(self.yspace.interpolate(partial(self.pde.u_solution, time=0)))
-        allu[0] = u0
-        allp[0] = self.pspace.function(self.pspace.interpolation(partial(self.pde.p_solution, time=0)))
+        self.pspace, self.yspace = self.space()
+
+        allz[-1] = self.yspace.function(self.yspace.interpolate(partial(self.pde.z_solution, time=self.t1)))
+        ally[0]  = self.yspace.function(self.yspace.interpolate(partial(self.pde.y_solution, time=0)))
+        allu[0]  = self.yspace.function(self.yspace.interpolate(partial(self.pde.u_solution, time=0)))
+        allp[0]  = self.pspace.function(self.pspace.interpolation(partial(self.pde.p_solution, time=0)))
         allq[-1] = self.pspace.function(self.pspace.interpolation(partial(self.pde.q_solution, time=self.t1)))
-    
+
         M = self.assembly_Mass()
 
-        erroru0 = 10000
-        errorp0 = 10000
-        errory0 = 10000
-        errorz0 = 10000
-        errorq0 = 10000
+        erroru0 = errorp0 = errory0 = errorz0 = errorq0 = 1e4
+
         for it in range(maxit):
-            allu, allp, ally, allz, allq = self.time_step(allu,allp, ally, allz, allq,M)
+
+            M_copy = M.copy()
+            allu, allp, ally, allz, allq = self.time_step(allu, allp, ally, allz, allq, M_copy, it=it, tmr=tmr)
+
             erroru = bm.zeros(self.nt+1)
             errorp = bm.zeros(self.nt+1)
             errory = bm.zeros(self.nt+1)
             errorz = bm.zeros(self.nt+1)
             errorq = bm.zeros(self.nt+1)
-            for i in range(1,self.nt):
-                erroru[i] = self.mesh.error(allu[i], partial(self.pde.u_solution, time=i*self.tau))
-                errorp[i] = self.mesh.error(allp[i], partial(self.pde.p_solution, time=i*self.tau))
-                errory[i] = self.mesh.error(ally[i], partial(self.pde.y_solution, time=i*self.tau))
-                errorz[i] = self.mesh.error(allz[i], partial(self.pde.z_solution, time=i*self.tau))
-                errorq[i] = self.mesh.error(allq[i], partial(self.pde.q_solution, time=i*self.tau))
+
+            for i in range(1, self.nt):
+                ti = i*self.tau
+                erroru[i] = self.mesh.error(allu[i], partial(self.pde.u_solution, time=ti))
+                errorp[i] = self.mesh.error(allp[i], partial(self.pde.p_solution, time=ti))
+                errory[i] = self.mesh.error(ally[i], partial(self.pde.y_solution, time=ti))
+                errorz[i] = self.mesh.error(allz[i], partial(self.pde.z_solution, time=ti))
+                errorq[i] = self.mesh.error(allq[i], partial(self.pde.q_solution, time=ti))
+
             erroru1 = bm.max(erroru)
             errorp1 = bm.max(errorp)
             errory1 = bm.max(errory)
             errorz1 = bm.max(errorz)
             errorq1 = bm.max(errorq)
-            if  bm.abs(errorp1 - errorp0) < 1e-8 and bm.abs(errorq1 - errorq0) < 1e-8 and bm.abs(errory1 - errory0) < 1e-8 and bm.abs(errorz1 - errorz0) < 1e-8 and bm.abs(erroru1 - erroru0) < 1e-8:
+            
+            tmr.send(f'第{it}次迭代：求解时间')
+
+            if (bm.abs(errorp1 - errorp0) < 1e-8 and bm.abs(errorq1 - errorq0) < 1e-8 and
+                bm.abs(errory1 - errory0) < 1e-8 and bm.abs(errorz1 - errorz0) < 1e-8 and
+                bm.abs(erroru1 - erroru0) < 1e-8):
                 self.logger.info(f"Convergence achieved at iteration {it+1}.")
                 self.logger.info(f"p error: {errorp1}, q error: {errorq1}, y error: {errory1}, z error: {errorz1}, u error: {erroru1}")
-                return errorp1,errorq1,erroru1,errory1,errorz1
-            erroru0 = erroru1
-            errorp0 = errorp1
-            errory0 = errory1   
-            errorz0 = errorz1
-            errorq0 = errorq1
+                return errorp1, errorq1, erroru1, errory1, errorz1
 
-    
-    def refine_run(self,reit=3):
+            erroru0, errorp0, errory0, errorz0, errorq0 = erroru1, errorp1, errory1, errorz1, errorq1
+
+    def refine_run(self, reit=3):
         errorType = ['$|| p - p_h||_{L2}$ ',
-             '$|| q - q_h||_{L2}$ ',
-             '$|| u - u_h||_{L2}$ ',
-             '$|| y - y_h||_{L2}$ ',
-             '$|| z - z_h||_{L2}$ ',
-              ]
-        errorMatrix = bm.zeros((len(errorType), reit), dtype=bm.float64)
-        for i in range(reit):
-            errorl2p,errorl2q,errorl2u,errorl2y,errorl2z = self.run()
-            errorMatrix[0, i] = errorl2p
-            errorMatrix[1, i] = errorl2q
-            errorMatrix[2, i] = errorl2u
-            errorMatrix[3, i] = errorl2y
-            errorMatrix[4, i] = errorl2z
-            if i < reit-1:
-                self.mesh.uniform_refine(1)
-        return errorMatrix
+                    '$|| q - q_h||_{L2}$ ',
+                    '$|| u - u_h||_{L2}$ ',
+                    '$|| y - y_h||_{L2}$ ',
+                    '$|| z - z_h||_{L2}$ ']
 
+        errorMatrix = bm.zeros((len(errorType), reit), dtype=bm.float64)
+
+        for level in range(reit):
+            tmr = timer()
+            next(tmr)
+            tmr.send(f'===== level {level} 网格开始 =====')
+
+            errorMatrix[:, level] = self.run(tmr=tmr)
+
+            tmr.send(f'===== level {level} 网格结束 =====')
+            next(tmr)
+            if level < reit - 1:
+                self.mesh.uniform_refine(1)
+
+        return errorMatrix
 
     @variantmethod("direct")
     def solve(self, A, b):
