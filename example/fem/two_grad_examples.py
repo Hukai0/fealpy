@@ -308,11 +308,12 @@ def main():
     errorMatrix = bm.zeros((len(errorType), nlevel), dtype=bm.float64)
     hvals = bm.zeros(nlevel, dtype=bm.float64)
 
-    tmr_all = timer()
-    next(tmr_all)
+
 
     for i in range(nlevel):
         # per-level timer
+        tmr_all = timer()
+        next(tmr_all)
         tmr = timer()
         next(tmr)
 
@@ -344,8 +345,8 @@ def main():
         tmr.send(f'[level {i}] done (printed above)')
         next(tmr)
 
-    tmr_all.send('[all levels] done')
-    next(tmr_all)
+        tmr_all.send('[levels] done')
+        next(tmr_all)
 
     print("\nerrorType:")
     for k, t in enumerate(errorType):
