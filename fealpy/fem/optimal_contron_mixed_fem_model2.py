@@ -88,7 +88,7 @@ class TwoGridOPCMixedFEMModel(ComputationalModel):
 
     def set_init_mesh(self, mesh: Union[Mesh, str] = "uniform_tri", **kwargs):
         if isinstance(mesh, str):
-            self.mesh = self.pde.init_mesh[mesh](**kwargs)
+            self.mesh = self.pde.init_mesh[mesh] (nx=5, ny=5)
         else:
             self.mesh = mesh
 
@@ -204,11 +204,15 @@ class TwoGridOPCMixedFEMModel(ComputationalModel):
         pmax = self.mesh.error(p1, ph)
         return umax, pmax
     
-    def show_p0(self,solution):
+    def show_p0(self,solution,title: str | None = None):
         """
         Visualize the mesh structure.
         """
-        u1 = self.uspace.interpolate(solution)
+        import types
+        if isinstance(solution, types.MethodType):
+            u1 = self.uspace.interpolate(solution)
+        else:
+            u1 = solution[:]
         node = self.mesh.entity('node')  # 节点坐标 (N_node, 2)
         cell = self.mesh.entity('cell')  # 单元 (N_cell, 3)
         # 假设 node, cell, u1 已经定义好
@@ -236,25 +240,30 @@ class TwoGridOPCMixedFEMModel(ComputationalModel):
         ax.set_xlabel('x')
         ax.set_ylabel('y')
         ax.set_zlabel('z')
-        ax.set_title(f'{solution.__name__}—Exact Solution')
+        # ax.set_title(f'{title}')
         ax.xaxis._axinfo["grid"].update({"linewidth": 0.5, "linestyle": "--", "alpha": 0.5})
         ax.yaxis._axinfo["grid"].update({"linewidth": 0.5, "linestyle": "--", "alpha": 0.5})
         ax.zaxis._axinfo["grid"].update({"linewidth": 0.5, "linestyle": "--", "alpha": 0.5})
         # 设置整个图表背景为透明
         fig.colorbar(surf)
         plt.show()
-
-    def show_rt(self, solution):
+    
+    def show_rt(self, solution,title: str | None = None):
         """
         Visualize the mesh structure.
         """
         import matplotlib.pyplot as plt
+        import types
+
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
         node = self.mesh.entity('node')
         edge = self.mesh.entity('edge')
         node_center = 0.5 * (node[edge[:, 0]] + node[edge[:, 1]])
-        p_solution = self.pspace.interpolation(solution)
+        if isinstance(solution, types.MethodType):
+            p_solution = self.pspace.interpolation(solution)
+        else:
+            p_solution = solution[:]
         x = node_center[:, 0]
         y = node_center[:, 1]
         surf = plt.tricontourf(x, y, p_solution, levels=50, cmap='jet', edgecolor='none')
@@ -265,8 +274,76 @@ class TwoGridOPCMixedFEMModel(ComputationalModel):
         ax.set_xlabel('x')
         ax.set_ylabel('y')
         ax.set_zlabel('z')
-        ax.set_title(f'{solution.__name__}—Exact Solution ')
+        # ax.set_title(f'{title} ')
         plt.show()
+        
+        
+    def plot(self, p, q, u, y, z):
+    
+        self.show_rt(self.pde.p_solution, title=f"p — True")
+        self.show_rt(self.pde.q_solution, title=f"q — True")
+        self.show_p0(self.pde.u_solution, title=f"u — True")
+        self.show_p0(self.pde.y_solution, title=f"y — True")
+        self.show_p0(self.pde.z_solution, title=f"z — True")
+
+        self.show_rt(p, title=f"p — Numerical")
+        self.show_rt(q, title=f"q — Numerical")
+        self.show_p0(u, title=f"u — Numerical")
+        self.show_p0(y, title=f"y — Numerical")
+        self.show_p0(z, title=f"z — Numerical")
+        
+        p_err = bm.abs(p - self.pspace.interpolation(self.pde.p_solution))
+        self.show_rt(p_err, title=f"p — Error ")
+        q_err = bm.abs(q - self.pspace.interpolation(self.pde.q_solution))
+        self.show_rt(q_err, title=f"q — Error ")
+        u_err = bm.abs(u - self.uspace.interpolate(self.pde.u_solution))
+        self.show_p0(u_err, title=f"u — Error ")    
+        y_err = bm.abs(y - self.uspace.interpolate(self.pde.y_solution))    
+        self.show_p0(y_err, title=f"y — Error")
+        z_err = bm.abs(z - self.uspace.interpolate(self.pde.z_solution))
+        self.show_p0(z_err, title=f"z — Error")
+    
+    @staticmethod
+    def recover_p1_from_cell_mean(mesh, uh):
+        NC = mesh.number_of_cells()
+        NN = mesh.number_of_nodes()
+        node = mesh.entity('node')      # (NN, 2)
+        cell = mesh.entity('cell')      # (NC, 3)
+
+        cell_node = node[cell]          # (NC, 3, 2)
+        bary = bm.mean(cell_node, axis=1)   # (NC, 2)
+        area = mesh.entity_measure('cell')  # (NC,)
+
+        # node_to_cell 是 CSR：行=节点，列=单元，非零表示相邻
+        node2cell = mesh.node_to_cell()     # csr_matrix
+        indptr = node2cell.indptr
+        indices = node2cell.indices         # 每行非零对应的列号（也就是 cell id）
+
+        Rh_uh = bm.zeros(NN)
+
+        for z in range(NN):
+            cells = indices[indptr[z]:indptr[z+1]]  # z 这个节点相邻的单元编号列表（1D）
+            if len(cells) == 0:  # 孤立点/异常情况（正常网格一般不会出现）
+                Rh_uh[z] = 0.0
+                continue
+            
+            A = []
+            b = []
+            for k in cells:
+                x, y = bary[k]
+                w = area[k]
+                uh_mean = uh[k]
+                A.append([w, w*x, w*y])
+                b.append(uh_mean * w)
+
+            A = bm.array(A)
+            b = bm.array(b)
+
+            coef, *_ = bm.linalg.lstsq(A, b, rcond=None)
+            xz, yz = node[z]
+            Rh_uh[z] = coef[0] + coef[1]*xz + coef[2]*yz
+
+        return Rh_uh
 
 
     

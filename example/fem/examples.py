@@ -39,51 +39,6 @@ parser.add_argument('--log_level',
 
 
 
-def recover_p1_from_cell_mean(mesh, uh):
-    NC = mesh.number_of_cells()
-    NN = mesh.number_of_nodes()
-    node = mesh.entity('node')      # (NN, 2)
-    cell = mesh.entity('cell')      # (NC, 3)
-
-    cell_node = node[cell]          # (NC, 3, 2)
-    bary = bm.mean(cell_node, axis=1)   # (NC, 2)
-    area = mesh.entity_measure('cell')  # (NC,)
-
-    # node_to_cell 是 CSR：行=节点，列=单元，非零表示相邻
-    node2cell = mesh.node_to_cell()     # csr_matrix
-    indptr = node2cell.indptr
-    indices = node2cell.indices         # 每行非零对应的列号（也就是 cell id）
-
-    Rh_uh = bm.zeros(NN)
-
-    for z in range(NN):
-        cells = indices[indptr[z]:indptr[z+1]]  # z 这个节点相邻的单元编号列表（1D）
-        if len(cells) == 0:  # 孤立点/异常情况（正常网格一般不会出现）
-            Rh_uh[z] = 0.0
-            continue
-
-        # 你原来的 if len(cells) < 0 永远不会触发，这里如果你想区分边界点，需要别的判据
-        # 这里只按“有相邻单元就做拟合/平均”处理
-
-        A = []
-        b = []
-        for k in cells:
-            x, y = bary[k]
-            w = area[k]
-            uh_mean = uh[k]
-            A.append([w, w*x, w*y])
-            b.append(uh_mean * w)
-
-        A = bm.array(A)
-        b = bm.array(b)
-
-        coef, *_ = bm.linalg.lstsq(A, b, rcond=None)
-        xz, yz = node[z]
-        Rh_uh[z] = coef[0] + coef[1]*xz + coef[2]*yz
-
-    return Rh_uh
-
-
 options = vars(parser.parse_args())
 from fealpy.backend import bm
 bm.set_backend(options['backend'])
@@ -132,79 +87,6 @@ for i in range(maxit_norm):
     xh = bm.zeros((pdof + ydof), dtype=bm.float64)
     hx = bm.zeros((qdof + zdof), dtype=bm.float64)
 
-    # for j in range(maxit):
-    #     pde = model.pde
-    #     A, b_forward = model.linear_system(p=0, s1=0, s2=0, s3=pde.f_fun, s4=u0)
-    #     tmr.send('第{}次迭代：正向求解组装线性系统时间'.format(j))
-    #     A, b_forward = model.apply_bc(A, b_forward, gd=pde.y_solution)
-    #     tmr.send('第{}次迭代：正向求解应用边界条件时间'.format(j))
-    #     xh[:] = model.solve(A, b_forward)
-    #     tmr.send('第{}次迭代：正向求解求解线性系统时间'.format(j))
-    #     p1[:] = xh[:pdof]
-    #     y1[:] = xh[pdof:]
-    #     @barycentric
-    #     def coef_p(bcs, index=None):
-    #         result = - p1(bcs, index)
-    #         return result
-    #     @cartesian
-    #     def coef_pd(p, index=None):
-    #         result = pde.pd_fun(p)
-    #         return result
-    #     @barycentric
-    #     def coef_y(bcs, index=None):
-    #         return y1(bcs) 
-    #     @cartesian
-    #     def coef_yd(p, index=None):
-    #         return -pde.yd_fun(p)
-    #     A,b_backward = model.linear_system(p=0 ,s1=coef_p, s2=coef_pd, s3=coef_y, s4=coef_yd)
-    #     tmr.send('第{}次迭代：反向求解组装线性系统时间'.format(j))
-    #     A, b_backward = model.apply_bc(A, b_backward, gd=pde.z_solution)
-    #     tmr.send('第{}次迭代：反向求解应用边界条件时间'.format(j))
-    #     hx[:]= model.solve(A, b_backward)
-    #     tmr.send('第{}次迭代：反向求解求解线性系统时间'.format(j))
-    #     q1[:] = hx[:qdof]
-    #     z1[:] = hx[qdof:]
-    #     # 假设控制系数为1  
-    #     nu = 1
-    #     u1[:] = -z1
-    #     mesh = model.mesh
-    #     p_error = mesh.error(p0,p1)
-    #     q_error = mesh.error(q0,q1)
-    #     y_error = mesh.error(y0,y1)
-    #     z_error = mesh.error(z0,z1)
-    #     p0[:] = p1[:]
-    #     q0[:] = q1[:]
-    #     y0[:] = y1[:]
-    #     z0[:] = z1[:]
-    #     u0[:] = u1[:]
-    #     if p_error < 1e-14:
-    #         print('p收敛',p_error)
-    #         print('q收敛',q_error)
-    #         print('y收敛',y_error)
-    #         print('z收敛',z_error)
-    #         break
-
-    # G = model.mesh.uniform_refine(n=1,return_cellim = True)
-    # print("G.shape",G[-1].shape)
-    # space1,space2 = model.space(p=0)
-    # pdof = space2.dof.number_of_global_dofs()
-    # ydof = space1.dof.number_of_global_dofs()
-    # qdof = space2.dof.number_of_global_dofs()
-    # zdof = space1.dof.number_of_global_dofs()
-    # y0 = space1.function()
-    # y1 = space1.function()
-    # p0 = space2.function()
-    # q0 = space2.function()
-    # q1 = space2.function()
-    # z0 = space1.function()
-    # z1 = space1.function()
-    # p1 = space2.function() 
-    # u0 = space1.function()
-    # u0[:] = G[-1] @ u1[:]
-    # u1 = space1.function()
-    # xh = bm.zeros((pdof + ydof), dtype=bm.float64)
-    # hx = bm.zeros((qdof + zdof), dtype=bm.float64)
-
     for j in range(maxit):
         pde = model.pde
         A, b_forward = model.linear_system(p=0, s1=0, s2=0, s3=pde.f_fun, s4=u0)
@@ -250,7 +132,7 @@ for i in range(maxit_norm):
         y0[:] = y1[:]
         z0[:] = z1[:]
         u0[:] = u1[:]
-        if p_error < 1e-8:
+        if p_error < 1e-10:
             print('p收敛',p_error)
             print('q收敛',q_error)
             print('y收敛',y_error)
@@ -258,22 +140,7 @@ for i in range(maxit_norm):
             break
 
 
-    # qsolution = space2.interpolation(pde.q_solution)
-    # errorq = bm.max(bm.abs(q1-qsolution))
-    # print("q误差",errorq)
-    # ysolution =space1.interpolate(pde.y_solution,)
-    # errory = bm.max(bm.abs(y1-ysolution))
-    # print("y误差",errory)
-    # psolution = space2.interpolation(pde.p_solution)
-    # errorp = bm.max(bm.abs(p1-psolution))
-    # print("p误差",errorp)
-    # zsolution = space1.interpolate(pde.z_solution)
-    # errorz = bm.max(bm.abs(z1-zsolution))
-    # print("z误差",errorz)
-
-    # 后处理计算误差
-
-    val = recover_p1_from_cell_mean(model.mesh, u1)
+    val = model.recover_p1_from_cell_mean(model.mesh, u1)
     spaceh = LagrangeFESpace(model.mesh, p=1)
     u3 = spaceh.function()
     u3[:] = val

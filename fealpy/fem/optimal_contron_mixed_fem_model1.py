@@ -80,10 +80,10 @@ class TimeOPCMixedFEMModel(ComputationalModel):
         self.set_pde(options['pde'])
         self.set_init_mesh(options['init_mesh'])
         self.set_order(options['space_degree'])
-        self.solve.set(options['solve']) 
-
+        # self.solve.set(options['solve']) 
+        self.op_type = options['op_type']
         self.t0, self.t1 = self.pde.duration()
-        self.nt = 400
+        self.nt = 10
         self.tau = (self.t1 - self.t0) / self.nt
 
 
@@ -101,7 +101,6 @@ class TimeOPCMixedFEMModel(ComputationalModel):
             self.mesh = self.pde.init_mesh[mesh](**kwargs)
         else: 
             self.mesh = mesh
-        # self.mesh.uniform_refine(1)
         NN = self.mesh.number_of_nodes()
         NE = self.mesh.number_of_edges()
         NF = self.mesh.number_of_faces()
@@ -291,9 +290,14 @@ class TimeOPCMixedFEMModel(ComputationalModel):
         for i in bm.arange(1, self.nt+1):
             z = allz[i-1]
             ufunction = self.yspace.function()
-            ufunction[:] = bm.maximum(0, -z)
-            #ufunction[:] = bm.maximum(0.5, bm.minimum(1,-z))
+            if self.op_type == 0:
+                ufunction[:] = bm.maximum(0, -z)
+            elif self.op_type == 1:
+                ufunction[:] = bm.maximum(0.5, bm.minimum(1,-z))
             allu[i] = ufunction
+        
+        if tmr is not None:
+            tmr.send(f'第{it}次迭代：更新控制变量时间')
 
         return allu, allp, ally, allz, allq
 
@@ -321,7 +325,6 @@ class TimeOPCMixedFEMModel(ComputationalModel):
 
             M_copy = M.copy()
             allu, allp, ally, allz, allq = self.time_step(allu, allp, ally, allz, allq, M_copy, it=it, tmr=tmr)
-
             erroru = bm.zeros(self.nt+1)
             errorp = bm.zeros(self.nt+1)
             errory = bm.zeros(self.nt+1)
@@ -342,13 +345,14 @@ class TimeOPCMixedFEMModel(ComputationalModel):
             errorz1 = bm.max(errorz)
             errorq1 = bm.max(errorq)
             
-            tmr.send(f'第{it}次迭代：求解时间')
+            tmr.send(f'第{it}次迭代：计算误差时间')
 
-            if (bm.abs(errorp1 - errorp0) < 1e-8 and bm.abs(errorq1 - errorq0) < 1e-8 and
-                bm.abs(errory1 - errory0) < 1e-8 and bm.abs(errorz1 - errorz0) < 1e-8 and
-                bm.abs(erroru1 - erroru0) < 1e-8):
+            if (bm.abs(errorp1 - errorp0) < 1e-10 and bm.abs(errorq1 - errorq0) < 1e-10 and
+                bm.abs(errory1 - errory0) < 1e-10 and bm.abs(errorz1 - errorz0) < 1e-10 and
+                bm.abs(erroru1 - erroru0) < 1e-10):
                 self.logger.info(f"Convergence achieved at iteration {it+1}.")
                 self.logger.info(f"p error: {errorp1}, q error: {errorq1}, y error: {errory1}, z error: {errorz1}, u error: {erroru1}")
+                # self.plot(allp, allq, allu, ally, allz, nt=5)
                 return errorp1, errorq1, erroru1, errory1, errorz1
 
             erroru0, errorp0, errory0, errorz0, errorq0 = erroru1, errorp1, errory1, errorz1, errorq1
@@ -364,17 +368,125 @@ class TimeOPCMixedFEMModel(ComputationalModel):
 
         for level in range(reit):
             tmr = timer()
+            tmr_total = timer()
+            next(tmr_total)
             next(tmr)
             tmr.send(f'===== level {level} 网格开始 =====')
 
             errorMatrix[:, level] = self.run(tmr=tmr)
 
             tmr.send(f'===== level {level} 网格结束 =====')
-            next(tmr)
+            
             if level < reit - 1:
                 self.mesh.uniform_refine(1)
-
+                nt = self.nt * 2
+                self.nt = nt
+                self.tau = (self.t1 - self.t0) / self.nt
+                tmr.send(f'===== level {level} 网格和时间加密时间 =====')
+            next(tmr)
+            tmr_total.send(f'===== level {level} 总时间 =====')
+            next(tmr_total)
+            
         return errorMatrix
+    
+    def show_p0(self,solution,title: str | None = None):
+        """
+        Visualize the mesh structure.
+        """
+        u1 = self.yspace.interpolate(solution)
+        node = self.mesh.entity('node')  # 节点坐标 (N_node, 2)
+        cell = self.mesh.entity('cell')  # 单元 (N_cell, 3)
+        # 假设 node, cell, u1 已经定义好
+        num_nodes = len(node)
+        node_values = bm.zeros(num_nodes)
+
+        for i in range(len(cell)):
+            for j in cell[i]:
+                node_values[j] += u1[i]
+                
+        # 计算每个节点的平均值
+        node_values /= bm.bincount(bm.concatenate(cell))
+        from scipy.interpolate import griddata
+
+        xi = bm.linspace(min(node[:, 0]), max(node[:, 0]))
+        yi = bm.linspace(min(node[:, 1]), max(node[:, 1]))
+        xi, yi = bm.meshgrid(xi, yi)
+
+        zi = griddata((node[:, 0], node[:, 1]), node_values, (xi, yi), method='linear')
+        import matplotlib.pyplot as plt
+
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        surf = ax.plot_surface(xi, yi, zi, cmap='jet', linewidth=0, antialiased=False, edgecolor='none')
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+        ax.set_zlabel('z')
+        # ax.set_title(f'{title}')
+        ax.xaxis._axinfo["grid"].update({"linewidth": 0.5, "linestyle": "--", "alpha": 0.5})
+        ax.yaxis._axinfo["grid"].update({"linewidth": 0.5, "linestyle": "--", "alpha": 0.5})
+        ax.zaxis._axinfo["grid"].update({"linewidth": 0.5, "linestyle": "--", "alpha": 0.5})
+        # 设置整个图表背景为透明
+        fig.colorbar(surf)
+        plt.show()
+    
+    def show_rt(self, solution,title: str | None = None):
+        """
+        Visualize the mesh structure.
+        """
+        import matplotlib.pyplot as plt
+        import functools
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        node = self.mesh.entity('node')
+        edge = self.mesh.entity('edge')
+        node_center = 0.5 * (node[edge[:, 0]] + node[edge[:, 1]])
+        if isinstance(solution, functools.partial):
+            p_solution = self.pspace.interpolation(solution)
+        else:
+            p_solution = solution[:]
+        x = node_center[:, 0]
+        y = node_center[:, 1]
+        surf = plt.tricontourf(x, y, p_solution, levels=50, cmap='jet', edgecolor='none')
+        ax.xaxis._axinfo["grid"].update({"linewidth": 0.5, "linestyle": "--", "alpha": 0.5})
+        ax.yaxis._axinfo["grid"].update({"linewidth": 0.5, "linestyle": "--", "alpha": 0.5})
+        ax.zaxis._axinfo["grid"].update({"linewidth": 0.5, "linestyle": "--", "alpha": 0.5})
+        fig.colorbar(surf)  
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+        ax.set_zlabel('z')
+        # ax.set_title(f'{title} ')
+        plt.show()
+        
+        
+    def plot(self, allp, allq, allu, ally, allz, nt):
+    
+        ti = self.t0 + nt * self.tau
+        tlabel = f"t={ti:.6g}"
+
+        self.show_rt(partial(self.pde.p_solution, time=ti), title=f"p — True ({tlabel})")
+        self.show_rt(partial(self.pde.q_solution, time=ti), title=f"q — True ({tlabel})")
+        self.show_p0(partial(self.pde.u_solution, time=ti), title=f"u — True ({tlabel})")
+        self.show_p0(partial(self.pde.y_solution, time=ti), title=f"y — True ({tlabel})")
+        self.show_p0(partial(self.pde.z_solution, time=ti), title=f"z — True ({tlabel})")
+
+        self.show_rt(allp[nt], title=f"p — Numerical ({tlabel})")
+        self.show_rt(allq[nt], title=f"q — Numerical ({tlabel})")
+        self.show_p0(allu[nt], title=f"u — Numerical ({tlabel})")
+        self.show_p0(ally[nt], title=f"y — Numerical ({tlabel})")
+        self.show_p0(allz[nt], title=f"z — Numerical ({tlabel})")
+        
+        # p_err = allp[nt] - self.pspace.interpolation(partial(self.pde.p_solution, time=ti))
+        # self.show_rt(p_err, title=f"p — Error ({tlabel})")
+        # q_err = allq[nt] - self.pspace.interpolation(partial(self.pde.q_solution, time=ti))
+        # self.show_rt(q_err, title=f"q — Error ({tlabel})")
+        # u_err = allu[nt] - self.yspace.interpolate(partial(self.pde.u_solution, time=ti))
+        # self.show_p0(u_err, title=f"u — Error ({tlabel})")
+        # y_err = ally[nt] - self.yspace.interpolate(partial(self.pde.y_solution, time=ti))
+        # self.show_p0(y_err, title=f"y — Error ({tlabel})")
+        # z_err = allz[nt] - self.yspace.interpolate(partial(self.pde.z_solution, time=ti))
+        # self.show_p0(z_err, title=f"z — Error ({tlabel})")
+
+
 
     @variantmethod("direct")
     def solve(self, A, b):

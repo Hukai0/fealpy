@@ -25,9 +25,7 @@ parser.add_argument('--space_degree',
     default=0, type=int,
     help="Degree of Lagrange finite element space, default is 0")
 
-parser.add_argument('--solve',  
-    default='direct', type=str,
-    help="Type of solver, default is direct, options are direct, iterative")
+parser.add_argument('--op_type', default=0, type=int)
 
 parser.add_argument('--pbar_log',
     default=True, type=bool,
@@ -48,5 +46,5 @@ from fealpy.decorator import barycentric, cartesian
 from fealpy.utils import timer
 
 tof = TimeOPCMixedFEMModel(options)
-errorMatrix = tof.refine_run(reit=5)
+errorMatrix = tof.refine_run(reit=3)
 print(errorMatrix)
