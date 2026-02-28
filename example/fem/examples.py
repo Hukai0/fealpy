@@ -48,7 +48,7 @@ from fealpy.decorator import barycentric, cartesian
 from fealpy.utils import timer
 from fealpy.functionspace import LagrangeFESpace
 
-maxit_norm = 4
+maxit_norm = 7
 errorType = ['$|| p - p_h||_{L2}$ ',
              '$|| q - q_h||_{L2}$ ',
              '$|| u - u_h||_{L2}$ ',

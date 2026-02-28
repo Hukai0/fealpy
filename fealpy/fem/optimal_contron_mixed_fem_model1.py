@@ -291,6 +291,7 @@ class TimeOPCMixedFEMModel(ComputationalModel):
             z = allz[i-1]
             ufunction = self.yspace.function()
             if self.op_type == 0:
+                # print("op_type 0: u = max(0, -z)")
                 ufunction[:] = bm.maximum(0, -z)
             elif self.op_type == 1:
                 ufunction[:] = bm.maximum(0.5, bm.minimum(1,-z))
@@ -352,7 +353,7 @@ class TimeOPCMixedFEMModel(ComputationalModel):
                 bm.abs(erroru1 - erroru0) < 1e-10):
                 self.logger.info(f"Convergence achieved at iteration {it+1}.")
                 self.logger.info(f"p error: {errorp1}, q error: {errorq1}, y error: {errory1}, z error: {errorz1}, u error: {erroru1}")
-                # self.plot(allp, allq, allu, ally, allz, nt=5)
+                # self.plot(allp, allq, allu, ally, allz, nt=80)
                 return errorp1, errorq1, erroru1, errory1, errorz1
 
             erroru0, errorp0, errory0, errorz0, errorq0 = erroru1, errorp1, errory1, errorz1, errorq1
@@ -374,6 +375,7 @@ class TimeOPCMixedFEMModel(ComputationalModel):
             tmr.send(f'===== level {level} 网格开始 =====')
 
             errorMatrix[:, level] = self.run(tmr=tmr)
+            print(self.nt)
 
             tmr.send(f'===== level {level} 网格结束 =====')
             
@@ -475,16 +477,16 @@ class TimeOPCMixedFEMModel(ComputationalModel):
         self.show_p0(ally[nt], title=f"y — Numerical ({tlabel})")
         self.show_p0(allz[nt], title=f"z — Numerical ({tlabel})")
         
-        # p_err = allp[nt] - self.pspace.interpolation(partial(self.pde.p_solution, time=ti))
-        # self.show_rt(p_err, title=f"p — Error ({tlabel})")
-        # q_err = allq[nt] - self.pspace.interpolation(partial(self.pde.q_solution, time=ti))
-        # self.show_rt(q_err, title=f"q — Error ({tlabel})")
-        # u_err = allu[nt] - self.yspace.interpolate(partial(self.pde.u_solution, time=ti))
-        # self.show_p0(u_err, title=f"u — Error ({tlabel})")
-        # y_err = ally[nt] - self.yspace.interpolate(partial(self.pde.y_solution, time=ti))
-        # self.show_p0(y_err, title=f"y — Error ({tlabel})")
-        # z_err = allz[nt] - self.yspace.interpolate(partial(self.pde.z_solution, time=ti))
-        # self.show_p0(z_err, title=f"z — Error ({tlabel})")
+        p_err = allp[nt] - self.pspace.interpolation(partial(self.pde.p_solution, time=ti))
+        self.show_rt(p_err, title=f"p — Error ({tlabel})")
+        q_err = allq[nt] - self.pspace.interpolation(partial(self.pde.q_solution, time=ti))
+        self.show_rt(q_err, title=f"q — Error ({tlabel})")
+        u_err = allu[nt] - self.yspace.interpolate(partial(self.pde.u_solution, time=ti))
+        self.show_p0(u_err, title=f"u — Error ({tlabel})")
+        y_err = ally[nt] - self.yspace.interpolate(partial(self.pde.y_solution, time=ti))
+        self.show_p0(y_err, title=f"y — Error ({tlabel})")
+        z_err = allz[nt] - self.yspace.interpolate(partial(self.pde.z_solution, time=ti))
+        self.show_p0(z_err, title=f"z — Error ({tlabel})")
 
 
 
