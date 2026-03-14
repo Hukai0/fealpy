@@ -1,5 +1,10 @@
 import argparse
+import math
 from fealpy.backend import backend_manager as bm
+
+# editable defaults in file (CLI arguments can still override)
+DEFAULT_PLOT = False
+DEFAULT_PLOT_LEVEL = 3  # -1 means plot every level
 
 parser = argparse.ArgumentParser(description="""
 Solve elliptic optimal control problem using RT0 mixed FEM + piecewise constant control.
@@ -23,7 +28,7 @@ parser.add_argument('--log_level', default='INFO', type=str,
                     help="log level")
 
 # two-grid params
-parser.add_argument('--nlevel', default=5, type=int,
+parser.add_argument('--nlevel', default=4, type=int,
                     help="number of mesh levels to test (0..nlevel-1)")
 parser.add_argument('--coarse_it', default=20, type=int,
                     help="max iterations on coarse mesh")
@@ -31,6 +36,22 @@ parser.add_argument('--coarse_tol', default=1e-10, type=float,
                     help="stop tol on coarse mesh (based on p error)")
 parser.add_argument('--nu', default=1.0, type=float,
                     help="Tikhonov parameter nu in u = Proj(-z/nu)")
+parser.add_argument('--plot', dest='plot', action='store_true',
+                    help="enable plotting (override file default)")
+parser.add_argument('--no-plot', dest='plot', action='store_false',
+                    help="disable plotting (override file default)")
+parser.add_argument('--plot_level', default=DEFAULT_PLOT_LEVEL, type=int,
+                    help="coarse level to plot when --plot is enabled; -1 means plot every level")
+parser.set_defaults(plot=DEFAULT_PLOT)
+
+
+def mesh_size(mesh):
+    """
+    Mesh-size scalar for triangle mesh.
+    We use h := sqrt(2 * max(|K|)), which matches side-length scale
+    for the uniform right-triangle mesh used here.
+    """
+    return float(bm.sqrt(2.0 * bm.max(mesh.entity_measure('cell'))))
 
 
 def coarse_optimize(model, maxit=50, tol=1e-8, nu=1.0, tmr=None):
@@ -215,12 +236,21 @@ def fine_oneshot(model, u0_fine, nu=1.0, tmr=None):
 # -----------------------------
 # one two-grid experiment on a given coarse level i
 # -----------------------------
-def run_two_grid_once(options, i_coarse, nu=1.0, coarse_it=50, coarse_tol=1e-8, tmr=None):
+def run_two_grid_once(
+    options,
+    i_coarse,
+    nu=1.0,
+    coarse_it=50,
+    coarse_tol=1e-8,
+    plot=False,
+    plot_level=3,
+    tmr=None
+):
     """
     Build a model, refine to coarse level i_coarse, solve coarse optimization.
-    Then refine ONE more time to get fine mesh and cell prolongation G,
-    prolong u_H to u_h^0, run one-shot on fine.
-    Return fine results and errors.
+    Then refine to fine level so that h ~= H^2 (based on mesh_size()).
+    Prolong u_H to u_h^0, run one-shot on fine.
+    Return fine results, errors, and mesh info (fine_level, H_coarse, h_fine).
 
     If tmr is provided, we will add time stamps.
     """
@@ -229,6 +259,7 @@ def run_two_grid_once(options, i_coarse, nu=1.0, coarse_it=50, coarse_tol=1e-8, 
 
     # ---- build model on base mesh and refine to coarse level ----
     model = TwoGridOPCMixedFEMModel(options)
+    H0 = mesh_size(model.mesh)
     if tmr is not None:
         tmr.send(f'[level {i_coarse}] build model')
     model.mesh.uniform_refine(n=i_coarse)
@@ -241,16 +272,31 @@ def run_two_grid_once(options, i_coarse, nu=1.0, coarse_it=50, coarse_tol=1e-8, 
     )
     if tmr is not None:
         tmr.send(f'[level {i_coarse}] coarse optimize done')
+    H_coarse = mesh_size(model.mesh)
 
-    # ---- refine ONE step and get cell prolongation mapping ----
-    G = model.mesh.uniform_refine(n=1, return_cellim=True)
+    # ---- choose fine level so that h ≈ H^2 in actual mesh-size scale ----
+    if H0 > 0:
+        fine_level = int(round(2 * i_coarse - math.log2(H0)))
+    else:
+        fine_level = 2 * i_coarse
+    fine_level = max(fine_level, i_coarse)
+    refine_steps = fine_level - i_coarse
+    if refine_steps > 0:
+        G = model.mesh.uniform_refine(n=refine_steps, return_cellim=True)
+    else:
+        G = []
     if tmr is not None:
-        tmr.send(f'[level {i_coarse}] refine to fine mesh + get prolongation')
+        tmr.send(
+            f'[level {i_coarse}] refine to fine mesh (fine level={fine_level}) + get prolongation'
+        )
 
     # ---- rebuild spaces on fine mesh ----
     space1h, space2h = model.space(p=0)  # on refined mesh
     uh0 = space1h.function()
-    uh0[:] = G[-1] @ uH[:]
+    uh0_vec = uH[:]
+    for Pcell in reversed(G):
+        uh0_vec = Pcell @ uh0_vec
+    uh0[:] = uh0_vec
     if tmr is not None:
         tmr.send(f'[level {i_coarse}] prolong control uH -> uh0')
 
@@ -258,9 +304,10 @@ def run_two_grid_once(options, i_coarse, nu=1.0, coarse_it=50, coarse_tol=1e-8, 
     ph, yh, qh, zh, uh_star = fine_oneshot(model, uh0, nu=nu, tmr=tmr)
     if tmr is not None:
         tmr.send(f'[level {i_coarse}] fine oneshot done')
+    h_fine = mesh_size(model.mesh)
     
-    # if i_coarse == 4: 
-    #     model.plot(ph, qh, uh_star, yh, zh)
+    if plot and (plot_level == -1 or i_coarse == plot_level):
+        model.plot(ph, qh, uh_star, yh, zh)
 
     # ---- compute errors ----
     pde = model.pde
@@ -279,7 +326,12 @@ def run_two_grid_once(options, i_coarse, nu=1.0, coarse_it=50, coarse_tol=1e-8, 
     if tmr is not None:
         tmr.send(f'[level {i_coarse}] recover u (P1) + error')
 
-    return model, (ph, yh, qh, zh, uh_star), (errorl2p, errorl2q, errorl2u, errorl2y, errorl2z, error_recover_u)
+    return (
+        model,
+        (ph, yh, qh, zh, uh_star),
+        (errorl2p, errorl2q, errorl2u, errorl2y, errorl2z, error_recover_u),
+        (fine_level, H_coarse, h_fine),
+    )
 
 
 def main():
@@ -295,6 +347,8 @@ def main():
     coarse_it = options['coarse_it']
     coarse_tol = options['coarse_tol']
     nu = options['nu']
+    plot = options['plot']
+    plot_level = options['plot_level']
 
     errorType = [
         '$|| p - p_h||_{L2}$',
@@ -306,6 +360,7 @@ def main():
     ]
 
     errorMatrix = bm.zeros((len(errorType), nlevel), dtype=bm.float64)
+    Hvals = bm.zeros(nlevel, dtype=bm.float64)
     hvals = bm.zeros(nlevel, dtype=bm.float64)
 
 
@@ -317,19 +372,24 @@ def main():
         tmr = timer()
         next(tmr)
 
-        model, sol, errs = run_two_grid_once(
+        model, sol, errs, mesh_sizes = run_two_grid_once(
             options,
             i_coarse=i,
             nu=nu,
             coarse_it=coarse_it,
             coarse_tol=coarse_tol,
+            plot=plot,
+            plot_level=plot_level,
             tmr=tmr
         )
 
         errorl2p, errorl2q, errorl2u, errorl2y, errorl2z, error_recover_u = errs
-        print(f"[two-grid] coarse level={i}, fine level={i+1}: "
+        fine_level, H_coarse, h_fine = mesh_sizes
+        h_over_H2 = h_fine / (H_coarse * H_coarse) if H_coarse > 0 else float('nan')
+        print(f"[two-grid] coarse level={i}, fine level={fine_level}: "
               f"p={errorl2p:.3e}, q={errorl2q:.3e}, u={errorl2u:.3e}, "
-              f"y={errorl2y:.3e}, z={errorl2z:.3e}, recover_u={error_recover_u:.3e}")
+              f"y={errorl2y:.3e}, z={errorl2z:.3e}, recover_u={error_recover_u:.3e}, "
+              f"H={H_coarse:.3e}, h={h_fine:.3e}, h/H^2={h_over_H2:.3e}")
 
         errorMatrix[0, i] = errorl2p
         errorMatrix[1, i] = errorl2q
@@ -338,8 +398,8 @@ def main():
         errorMatrix[4, i] = errorl2z
         errorMatrix[5, i] = error_recover_u
 
-        # a simple "h" proxy (each refine halves h); here we used fine = coarse+1
-        hvals[i] = 0.2 / (2.0 ** (i + 1))
+        Hvals[i] = H_coarse
+        hvals[i] = h_fine
 
         # end per-level timer
         tmr.send(f'[level {i}] done (printed above)')
@@ -352,7 +412,10 @@ def main():
     for k, t in enumerate(errorType):
         print(k, t)
 
-    print("\nh (proxy):")
+    print("\nH (coarse mesh size):")
+    print(Hvals)
+
+    print("\nh (fine mesh size):")
     print(hvals)
 
     print("\nerrorMatrix:")

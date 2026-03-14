@@ -85,6 +85,30 @@ class TimeOPCMixedFEMModel(ComputationalModel):
         self.t0, self.t1 = self.pde.duration()
         self.nt = 10
         self.tau = (self.t1 - self.t0) / self.nt
+        self.enable_plot = options.get('plot', False)
+        self.plot_when_nt = options.get('plot_when_nt', 80)
+        self.plot_nt = options.get('plot_nt', -1.0)
+
+    def _resolve_plot_nt(self):
+        """
+        Resolve plotting time index from self.plot_nt:
+          -1      -> nt//2
+          [0, 1]  -> ratio of nt
+          >1      -> absolute index
+        """
+        try:
+            v = float(self.plot_nt)
+        except Exception:
+            v = -1.0
+
+        if v == -1.0:
+            idx = self.nt // 2
+        elif 0.0 <= v <= 1.0:
+            idx = int(round(v * self.nt))
+        else:
+            idx = int(round(v))
+
+        return max(0, min(self.nt, idx))
 
 
     def set_pde(self, pde: Union[OPCPDEDataT, str]="opc"):
@@ -353,8 +377,10 @@ class TimeOPCMixedFEMModel(ComputationalModel):
                 bm.abs(erroru1 - erroru0) < 1e-10):
                 self.logger.info(f"Convergence achieved at iteration {it+1}.")
                 self.logger.info(f"p error: {errorp1}, q error: {errorq1}, y error: {errory1}, z error: {errorz1}, u error: {erroru1}")
-                if self.nt == 160:
-                    self.plot(allp, allq, allu, ally, allz, nt=80)
+                should_plot = self.enable_plot and (self.plot_when_nt == -1 or self.nt == self.plot_when_nt)
+                if should_plot:
+                    nt_plot = self._resolve_plot_nt()
+                    self.plot(allp, allq, allu, ally, allz, nt=nt_plot)
                 return errorp1, errorq1, erroru1, errory1, errorz1
 
             erroru0, errorp0, errory0, errorz0, errorq0 = erroru1, errorp1, errory1, errorz1, errorq1
@@ -391,6 +417,32 @@ class TimeOPCMixedFEMModel(ComputationalModel):
             next(tmr_total)
             
         return errorMatrix
+
+    @staticmethod
+    def _format_plot_ticks(ax, cbar=None):
+        import matplotlib.ticker as mticker
+
+        # Avoid overcrowded long decimal labels.
+        ax.xaxis.set_major_locator(mticker.MaxNLocator(5))
+        ax.yaxis.set_major_locator(mticker.MaxNLocator(5))
+        ax.tick_params(axis='both', which='major', labelsize=9, pad=2)
+
+        if hasattr(ax, 'zaxis'):
+            ax.zaxis.set_major_locator(mticker.MaxNLocator(5))
+            zfmt = mticker.ScalarFormatter(useMathText=True)
+            zfmt.set_scientific(True)
+            zfmt.set_powerlimits((-2, 2))
+            ax.zaxis.set_major_formatter(zfmt)
+            ax.tick_params(axis='z', which='major', labelsize=9, pad=4)
+
+        if cbar is not None:
+            cbar.locator = mticker.MaxNLocator(6)
+            cfmt = mticker.ScalarFormatter(useMathText=True)
+            cfmt.set_scientific(True)
+            cfmt.set_powerlimits((-2, 2))
+            cbar.formatter = cfmt
+            cbar.update_ticks()
+            cbar.ax.tick_params(labelsize=9, pad=2)
     
     def show_p0(self,solution,title: str | None = None):
         """
@@ -432,8 +484,9 @@ class TimeOPCMixedFEMModel(ComputationalModel):
         ax.xaxis._axinfo["grid"].update({"linewidth": 0.5, "linestyle": "--", "alpha": 0.5})
         ax.yaxis._axinfo["grid"].update({"linewidth": 0.5, "linestyle": "--", "alpha": 0.5})
         ax.zaxis._axinfo["grid"].update({"linewidth": 0.5, "linestyle": "--", "alpha": 0.5})
-        # 设置整个图表背景为透明
-        fig.colorbar(surf)
+        cbar = fig.colorbar(surf, ax=ax, shrink=0.85, pad=0.08)
+        self._format_plot_ticks(ax, cbar)
+        fig.tight_layout()
         plt.show()
     
     def show_rt(self, solution,title: str | None = None):
@@ -457,11 +510,13 @@ class TimeOPCMixedFEMModel(ComputationalModel):
         ax.xaxis._axinfo["grid"].update({"linewidth": 0.5, "linestyle": "--", "alpha": 0.5})
         ax.yaxis._axinfo["grid"].update({"linewidth": 0.5, "linestyle": "--", "alpha": 0.5})
         ax.zaxis._axinfo["grid"].update({"linewidth": 0.5, "linestyle": "--", "alpha": 0.5})
-        fig.colorbar(surf)  
+        cbar = fig.colorbar(surf, ax=ax, shrink=0.85, pad=0.08)
+        self._format_plot_ticks(ax, cbar)
         ax.set_xlabel('x')
         ax.set_ylabel('y')
         ax.set_zlabel('z')
         # ax.set_title(f'{title} ')
+        fig.tight_layout()
         plt.show()
         
         
@@ -499,5 +554,3 @@ class TimeOPCMixedFEMModel(ComputationalModel):
         from fealpy.solver import spsolve
         self.xh[:] = spsolve(A, b, solver='mumps')
         return self.xh
-
-

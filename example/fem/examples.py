@@ -1,4 +1,5 @@
 import argparse
+import math
 
 from fealpy.backend import backend_manager as bm
 
@@ -37,6 +38,9 @@ parser.add_argument('--log_level',
     default='INFO', type=str,
     help="Log level, default is INFO, options are DEBUG, INFO, WARNING, ERROR, CRITICAL")
 
+parser.add_argument('--nlevel',
+    default=4, type=int,
+    help="Number of coarse levels for comparison with two-grid method")
 
 
 options = vars(parser.parse_args())
@@ -48,7 +52,7 @@ from fealpy.decorator import barycentric, cartesian
 from fealpy.utils import timer
 from fealpy.functionspace import LagrangeFESpace
 
-maxit_norm = 7
+maxit_norm = options['nlevel']
 errorType = ['$|| p - p_h||_{L2}$ ',
              '$|| q - q_h||_{L2}$ ',
              '$|| u - u_h||_{L2}$ ',
@@ -59,6 +63,21 @@ errorMatrix = bm.zeros((len(errorType), maxit_norm), dtype=bm.float64)
 NDof = bm.zeros(maxit_norm, dtype=bm.float64)
 errorp = bm.zeros(maxit_norm, dtype=bm.float64)
 
+
+def mesh_size(mesh):
+    # same mesh-size definition as two_grid_optimal_control_mixed_fem_example.py
+    return float(bm.sqrt(2.0 * bm.max(mesh.entity_measure('cell'))))
+
+
+def mapped_fine_level(i_coarse, H0):
+    # same fine-level mapping as two_grid_optimal_control_mixed_fem_example.py
+    if H0 > 0:
+        fine_level = int(round(2 * i_coarse - math.log2(H0)))
+    else:
+        fine_level = 2 * i_coarse
+    return max(fine_level, i_coarse)
+
+
 for i in range(maxit_norm):
 
     tmr = timer()
@@ -67,8 +86,10 @@ for i in range(maxit_norm):
     next(tmr_all)
 
     model = TwoGridOPCMixedFEMModel(options)
+    H0 = mesh_size(model.mesh)
+    fine_level = mapped_fine_level(i, H0)
     maxit = 20  
-    model.mesh.uniform_refine(n=i)
+    model.mesh.uniform_refine(n=fine_level)
     space1,space2 = model.space(p=0)
     pdof = space2.dof.number_of_global_dofs()
     ydof = space1.dof.number_of_global_dofs()
@@ -151,15 +172,16 @@ for i in range(maxit_norm):
     errorl2y, errorl2p = model.postprocess(y1, p1, solution1=pde.y_solution, solution2=pde.p_solution)
     errorl2u, errorl2q = model.postprocess(u1, q1, solution1=pde.u_solution, solution2=pde.q_solution)
     errorl2z, errorl2pd = model.postprocess(z1, p1, solution1=pde.z_solution, solution2=pde.p_solution)
-    print('第{}次迭代：p误差={}, q误差={}, u误差={}, y误差={}, z误差={}'
-          .format(i, errorl2p, errorl2q, errorl2u, errorl2y, errorl2z))
+    h = mesh_size(model.mesh)
+    print('第{}次迭代(细网格level={})：p误差={}, q误差={}, u误差={}, y误差={}, z误差={}, h={}'
+          .format(i, fine_level, errorl2p, errorl2q, errorl2u, errorl2y, errorl2z, h))
     errorMatrix[0, i] = errorl2p
     errorMatrix[1, i] = errorl2q
     errorMatrix[2, i] = errorl2u
     errorMatrix[3, i] = errorl2y
     errorMatrix[4, i] = errorl2z
 
-    NDof[i] = 1/2**i
+    NDof[i] = h
 
     tmr.send('后处理计算误差时间')
     tmr_all.send('总时间')
@@ -179,5 +201,6 @@ for i in range(maxit_norm):
 # plt.show()
 
 
+print(NDof)
 print(errorp)
 print(errorMatrix)

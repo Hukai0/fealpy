@@ -88,7 +88,7 @@ class TwoGridOPCMixedFEMModel(ComputationalModel):
 
     def set_init_mesh(self, mesh: Union[Mesh, str] = "uniform_tri", **kwargs):
         if isinstance(mesh, str):
-            self.mesh = self.pde.init_mesh[mesh] (nx=5, ny=5)
+            self.mesh = self.pde.init_mesh[mesh] (nx=2, ny=2)
         else:
             self.mesh = mesh
 
@@ -203,6 +203,32 @@ class TwoGridOPCMixedFEMModel(ComputationalModel):
         umax = self.mesh.error(u1, uh)
         pmax = self.mesh.error(p1, ph)
         return umax, pmax
+
+    @staticmethod
+    def _format_plot_ticks(ax, cbar=None):
+        import matplotlib.ticker as mticker
+
+        # Avoid overcrowded long decimal labels.
+        ax.xaxis.set_major_locator(mticker.MaxNLocator(5))
+        ax.yaxis.set_major_locator(mticker.MaxNLocator(5))
+        ax.tick_params(axis='both', which='major', labelsize=9, pad=2)
+
+        if hasattr(ax, 'zaxis'):
+            ax.zaxis.set_major_locator(mticker.MaxNLocator(5))
+            zfmt = mticker.ScalarFormatter(useMathText=True)
+            zfmt.set_scientific(True)
+            zfmt.set_powerlimits((-2, 2))
+            ax.zaxis.set_major_formatter(zfmt)
+            ax.tick_params(axis='z', which='major', labelsize=9, pad=4)
+
+        if cbar is not None:
+            cbar.locator = mticker.MaxNLocator(6)
+            cfmt = mticker.ScalarFormatter(useMathText=True)
+            cfmt.set_scientific(True)
+            cfmt.set_powerlimits((-2, 2))
+            cbar.formatter = cfmt
+            cbar.update_ticks()
+            cbar.ax.tick_params(labelsize=9, pad=2)
     
     def show_p0(self,solution,title: str | None = None):
         """
@@ -244,8 +270,9 @@ class TwoGridOPCMixedFEMModel(ComputationalModel):
         ax.xaxis._axinfo["grid"].update({"linewidth": 0.5, "linestyle": "--", "alpha": 0.5})
         ax.yaxis._axinfo["grid"].update({"linewidth": 0.5, "linestyle": "--", "alpha": 0.5})
         ax.zaxis._axinfo["grid"].update({"linewidth": 0.5, "linestyle": "--", "alpha": 0.5})
-        # 设置整个图表背景为透明
-        fig.colorbar(surf)
+        cbar = fig.colorbar(surf, ax=ax, shrink=0.85, pad=0.08)
+        self._format_plot_ticks(ax, cbar)
+        fig.tight_layout()
         plt.show()
     
     def show_rt(self, solution,title: str | None = None):
@@ -270,11 +297,13 @@ class TwoGridOPCMixedFEMModel(ComputationalModel):
         ax.xaxis._axinfo["grid"].update({"linewidth": 0.5, "linestyle": "--", "alpha": 0.5})
         ax.yaxis._axinfo["grid"].update({"linewidth": 0.5, "linestyle": "--", "alpha": 0.5})
         ax.zaxis._axinfo["grid"].update({"linewidth": 0.5, "linestyle": "--", "alpha": 0.5})
-        fig.colorbar(surf)  
+        cbar = fig.colorbar(surf, ax=ax, shrink=0.85, pad=0.08)
+        self._format_plot_ticks(ax, cbar)
         ax.set_xlabel('x')
         ax.set_ylabel('y')
         ax.set_zlabel('z')
         # ax.set_title(f'{title} ')
+        fig.tight_layout()
         plt.show()
         
         

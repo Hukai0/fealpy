@@ -74,5 +74,5 @@ from .linear_elasticity_eigen_lfem_model import LinearElasticityEigenLFEMModel
 from .stokes_lfem_model import StokesLFEMModel
 from .dld_microfluidic_chip_lfem_model import DLDMicrofluidicChipLFEMModel
 
-from .optimal_contron_mixed_fem_model1 import TimeOPCMixedFEMModel
-from .optimal_contron_mixed_fem_model2 import TwoGridOPCMixedFEMModel
+from .time_optimal_control_mixed_fem_model import TimeOPCMixedFEMModel
+from .two_grid_optimal_control_mixed_fem_model import TwoGridOPCMixedFEMModel
